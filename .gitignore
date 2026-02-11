@@ -6,3 +6,4 @@ build-*/
 docgen_tmp/
 .zbscanhelper.zig
 .idea/
+.idea
