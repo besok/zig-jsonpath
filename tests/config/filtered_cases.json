@@ -1,0 +1,8 @@
+[
+  {
+    "name": "functions, value, result must be compared",
+    "reason": "To handle it later either at the parser level or during execution",
+    "expected_to_fix": true,
+    "issue": 1
+  }
+]
