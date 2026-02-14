@@ -71,7 +71,7 @@ const JPQueryParser = struct {
 
     fn expect(self: *JPQueryParser, ch: u8) Error!void {
         if (!self.match(ch)) {
-            return self.fail("unexpected character");
+            return Error.UnexpectedChar;
         }
     }
 
