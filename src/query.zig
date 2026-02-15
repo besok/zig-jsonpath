@@ -26,62 +26,64 @@ const Filter = union(enum) {
 };
 
 const FilterAtom = union(enum) {
-    filter: struct { expr: Filter, not: bool },
+    filter: struct { expr: *Filter, not: bool },
     test_expr: struct { expr: Test, not: bool },
     compare: Comparison,
 };
 
-const Test = union(enum) { abs_query: JPQuery, rel_query: []const Segment, function: TestFunction };
-
-const JPQueryParser = struct {
-    // input: []const u8,
-    pos: usize = 0,
-
-    const Error = error{
-        UnexpectedChar,
-        UnexpectedEnd,
-        InvalidIndex,
-        ExpectedRoot,
-    };
-
-    fn init(input: []const u8) JPQueryParser {
-        return .{ .input = input };
-    }
-
-    fn peek(self: *JPQueryParser) ?u8 {
-        if (self.pos >= self.input.len) return null;
-        return self.input[self.pos];
-    }
-
-    fn step(self: *JPQueryParser) !void {
-        if (self.pos < self.input.len) self.pos += 1 else return Error.UnexpectedEnd;
-    }
-
-    fn eat(self: *JPQueryParser) ?u8 {
-        const ch = self.peek() orelse return null;
-        self.step();
-        return ch;
-    }
-
-    fn match(self: *JPQueryParser, ch: u8) bool {
-        if (self.peek() == ch) {
-            self.step();
-            return true;
-        }
-        return false;
-    }
-
-    fn expect(self: *JPQueryParser, ch: u8) Error!void {
-        if (!self.match(ch)) {
-            return Error.UnexpectedChar;
-        }
-    }
-
-    fn rest(self: *JPQueryParser) []const u8 {
-        return self.input[self.pos..];
-    }
-
-    fn isEnd(self: *JPQueryParser) bool {
-        return self.pos >= self.input.len;
-    }
+const Test = union(enum) {
+    abs_query: JPQuery,
+    rel_query: []Segment,
+    function: TestFunction,
 };
+
+const TestFunction = union(enum) {
+    custom: struct { name: []const u8, args: []FnArg },
+    length: struct { arg: FnArg },
+    value: struct { arg: FnArg },
+    count: struct { arg: FnArg },
+    search: struct { lhs: FnArg, rhs: FnArg },
+    match: struct { lhs: FnArg, rhs: FnArg },
+};
+
+const FnArg = union(enum) {
+    lit: Literal,
+    test_arg: *Test,
+    filter: *Filter,
+};
+
+const Literal = union(enum) {
+    int: i64,
+    float: f64,
+    str: []const u8,
+    bool: bool,
+    null,
+};
+
+const BinaryOp = struct {
+    lhs: Comparable,
+    rhs: Comparable,
+};
+
+const Comparison = union(enum) {
+    eq:  BinaryOp,
+    ne:  BinaryOp,
+    gt:  BinaryOp,
+    gte: BinaryOp,
+    lt:  BinaryOp,
+    lte: BinaryOp,
+};
+
+
+const Comparable = union(enum) {
+    lit: Literal,
+    function: TestFunction,
+    query: SingularQuery,
+};
+
+const SingularQuery = union(enum) {
+    current: []SingularQuerySegment,
+    root: []SingularQuerySegment,
+};
+
+const SingularQuerySegment = union(enum) { index: i64, name: []const u8 };
