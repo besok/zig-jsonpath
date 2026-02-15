@@ -27,7 +27,7 @@ const Filter = union(enum) {
 
 const FilterAtom = union(enum) {
     filter: struct { expr: Filter, not: bool },
-    validate: struct { expr: Validate, not: bool },
+    test_expr: struct { expr: Test, not: bool },
     compare: Comparison,
 };
 
