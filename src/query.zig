@@ -31,8 +31,10 @@ const FilterAtom = union(enum) {
     compare: Comparison,
 };
 
+const Test = union(enum) { abs_query: JPQuery, rel_query: []const Segment, function: TestFunction };
+
 const JPQueryParser = struct {
-    input: []const u8,
+    // input: []const u8,
     pos: usize = 0,
 
     const Error = error{
