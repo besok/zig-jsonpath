@@ -1,12 +1,15 @@
-const JPQueryParser = struct {
-    // input: []const u8,
-    pos: usize = 0,
+const std = @import("std");
+const model = @import("query.zig");
 
+const JPQueryParser = struct {
+    input: []const u8,
+    pos: usize = 0,
+    err_desc: []const u8 = "Unexpected error",
     const Error = error{
-    UnexpectedChar,
-    UnexpectedEnd,
-    InvalidIndex,
-    ExpectedRoot,
+        UnexpectedChar,
+        UnexpectedEnd,
+        InvalidIndex,
+        ExpectedRoot,
     };
 
     fn init(input: []const u8) JPQueryParser {
@@ -38,6 +41,7 @@ const JPQueryParser = struct {
 
     fn expect(self: *JPQueryParser, ch: u8) Error!void {
         if (!self.match(ch)) {
+            self.err_desc = "Expected '" ++ std.fmt.comma(ch) ++ "'";
             return Error.UnexpectedChar;
         }
     }
@@ -48,5 +52,9 @@ const JPQueryParser = struct {
 
     fn isEnd(self: *JPQueryParser) bool {
         return self.pos >= self.input.len;
+    }
+
+    pub fn parse(self: *JPQueryParser) Error!model.JPQuery {
+        try self.expect("$");
     }
 };
