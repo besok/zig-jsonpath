@@ -1,7 +1,7 @@
 const std = @import("std");
-const model = @import("query.zig");
+const model = @import("model.zig");
 
-const JPQueryParser = struct {
+pub const JPQueryParser = struct {
     input: []const u8,
     pos: usize = 0,
     err_desc: []const u8 = "Unexpected error",
@@ -12,7 +12,7 @@ const JPQueryParser = struct {
         ExpectedRoot,
     };
 
-    fn init(input: []const u8) JPQueryParser {
+    pub fn init(input: []const u8) JPQueryParser {
         return .{ .input = input };
     }
 
@@ -31,17 +31,16 @@ const JPQueryParser = struct {
         return ch;
     }
 
-    fn match(self: *JPQueryParser, ch: u8) bool {
+    fn match(self: *JPQueryParser, ch: u8) !bool {
         if (self.peek() == ch) {
-            self.step();
+            try self.step();
             return true;
         }
         return false;
     }
 
     fn expect(self: *JPQueryParser, ch: u8) Error!void {
-        if (!self.match(ch)) {
-            self.err_desc = "Expected '" ++ std.fmt.comma(ch) ++ "'";
+        if (!try self.match(ch)) {
             return Error.UnexpectedChar;
         }
     }
@@ -55,6 +54,7 @@ const JPQueryParser = struct {
     }
 
     pub fn parse(self: *JPQueryParser) Error!model.JPQuery {
-        try self.expect("$");
+        try self.expect('$');
+        return model.JPQuery{ .segments = &[_]model.Segment{} };
     }
 };
