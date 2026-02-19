@@ -46,27 +46,53 @@ pub fn main() !void {
                 if (v) |value| {
                     const results = value.results;
                     if (case.result)|r|{
-                        if (r == results) {
+                        const items = r.array.items;
+                        if (compareValueSlices(items, results)) {
                             successfull_cases += 1;
                         } else {
                             try failed_cases.append(case.name);
-                            std.debug.print("Failed case {s} .Error: {s}\n", .{case.name});
                         }
                     }
-                } else |err|{
+                    else if(case.results)|rs|{
+                        var checked = false;
+                        const items = rs.array.items;
+                        for (items) |item| {
+                            const elems = item.array.items;
+                            if (compareValueSlices(elems, results)){
+                                successfull_cases += 1;
+                                checked = true;
+                                break;
+                            }
+                        }
+                        if (!checked) {
+                            try failed_cases.append(case.name);
+                        }
+                    }
+                } else |_|{
                     try failed_cases.append(case.name);
-                    std.debug.print("Failed case {s} .Error: {s}\n", .{case.name, err});
                 }
             }
         }
     }
 
     std.debug.print("-----------\n", .{});
-    std.debug.print("Total: {d}\n", .{total});
+    std.debug.print("Total:       {d}\n", .{total});
     std.debug.print("Successfull: {d}\n", .{successfull_cases});
-    std.debug.print("Failed: {d}\n", .{failed_cases.items.len});
-    std.debug.print("Skipped: {d}\n", .{skipped_cases});
+    std.debug.print("Failed:      {d}\n", .{failed_cases.items.len});
+    std.debug.print("Skipped:     {d}\n", .{skipped_cases});
     std.debug.print("-----------\n", .{});
 
     // try std.testing.expectEqual( 0, failed_cases.items.len);
+}
+
+fn compareValueSlices(a: []const std.json.Value, b: []const *const std.json.Value) bool {
+    if (a.len != b.len) return false;
+
+    for (a, b) |val_a, ptr_b| {
+        if (!std.meta.eql(val_a, ptr_b.*)) {
+            return false;
+        }
+    }
+
+    return true;
 }

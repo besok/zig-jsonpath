@@ -7,3 +7,4 @@ docgen_tmp/
 .zbscanhelper.zig
 .idea/
 .idea
+.DS_Store
