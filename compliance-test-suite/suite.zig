@@ -1,13 +1,23 @@
 const std = @import("std");
 
-const CaseFilter = struct {
+pub const CaseFilter = struct {
     name: []const u8,
     reason: []const u8,
     issue: usize,
     expected_to_fix: bool,
+
+    pub fn format(
+        self: CaseFilter,
+        writer: anytype, // Argument 3
+    ) !void {
+        try writer.print(
+            "Case(name: \"{s}\", issue: #{d}, reason: \"{s}\", fix: {})",
+            .{ self.name, self.issue, self.reason, self.expected_to_fix },
+        );
+    }
 };
 
-const Case = struct {
+pub const Case = struct {
     name: []const u8,
     selector: []const u8,
     invalid_selector: bool = false,
@@ -18,15 +28,15 @@ const Case = struct {
     results_paths: ?[][][]const u8 = null,
 };
 
-const Suite = struct { tests: []Case };
+pub const Suite = struct { tests: []Case };
 
 const case_filters = @embedFile("config/filtered_cases.json");
-const cases = @embedFile("jsonpath-compliance-test-suite/cts.json");
+const cases = @embedFile("tests/cts.json");
 
-fn getCaseFilters(allocator: std.mem.Allocator) !std.json.Parsed([]CaseFilter) {
+pub fn getCaseFilters(allocator: std.mem.Allocator) !std.json.Parsed([]CaseFilter) {
     return try std.json.parseFromSlice([]CaseFilter, allocator, case_filters, .{});
 }
-fn getCases(allocator: std.mem.Allocator) !std.json.Parsed(Suite) {
+pub fn getCases(allocator: std.mem.Allocator) !std.json.Parsed(Suite) {
     return try std.json.parseFromSlice(Suite, allocator, cases, .{
         .ignore_unknown_fields = true,
     });

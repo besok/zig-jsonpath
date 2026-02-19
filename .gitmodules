@@ -1,3 +1,6 @@
 [submodule "tests/jsonpath-compliance-test-suite"]
 	path = tests/jsonpath-compliance-test-suite
 	url = https://github.com/jsonpath-standard/jsonpath-compliance-test-suite
+[submodule "compliance-test-suite/tests"]
+	path = compliance-test-suite/tests
+	url = https://github.com/jsonpath-standard/jsonpath-compliance-test-suite.git

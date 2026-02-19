@@ -1,13 +1,13 @@
 const std = @import("std");
 const model = @import("model.zig");
-const jsp = @import("parser.zig");
+pub const jsp = @import("parser.zig");
 const query = @import("query.zig");
 
 pub fn jsonpath_from_string(
     source: []const u8,
     path: []const u8,
     allocator: std.mem.Allocator,
-) !query.JsQueryResult {
+) !query.JsonPathResult {
     var json = try std.json.parseFromSlice(
         std.json.Value,
         allocator,
@@ -17,7 +17,7 @@ pub fn jsonpath_from_string(
     defer json.deinit();
     var parser = jsp.JPQueryParser.init(path);
     var jp_path = try parser.parse();
-    return try query.perform_query(&json.value, &jp_path, allocator);
+    return try query.perform_query(json, &jp_path, allocator);
 }
 
 test "smoke" {
