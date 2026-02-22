@@ -29,7 +29,7 @@ pub fn main() !void {
     for (cases.value.tests) |case| {
         total += 1;
         if (string_set.get(case.name)) |filter| {
-            std.debug.print("{f}\n", .{filter});
+            std.debug.print("Filter {f}\n", .{filter});
             skipped_cases += 1;
         } else {
 
