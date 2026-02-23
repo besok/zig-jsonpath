@@ -5,7 +5,8 @@ const lit = model.lit;
 
 fn assertLiteral(input: []const u8, expected: model.Literal) !void {
     var p = JPQueryParser.init(input, std.testing.allocator);
-    const res = try p.parseLiteral();
+    const res = p.parseLiteral() catch |e| return p.printThenFail(e);
+
     defer if (res == .str) std.testing.allocator.free(res.str);
 
     switch (expected) {
@@ -41,14 +42,14 @@ test "literal" {
     // Valid literals
     try assertLiteral("'☺'", lit("☺"));
     try assertLiteral("' '", lit(" "));
-    try assertLiteral("'\"try'", lit("\""));
+    try assertLiteral("'\"try'",  lit("\"try"));
     try assertLiteral("null", lit(null));
     try assertLiteral("false", lit(false));
     try assertLiteral("true", lit(true));
     try assertLiteral("\"hello\"", lit("hello"));
     try assertLiteral("'hello'", lit("hello"));
     try assertLiteral("'hel\\'lo'", lit("hel'lo"));
-    // try assertLiteral("'hel\"lo'", lit("hel\"lo"));
+    try assertLiteral("'hel\"lo'", lit("hel\"lo"));
     try assertLiteral("'hel\\nlo'", lit("hel\nlo"));
     try assertLiteral("1", lit(1));
     try assertLiteral("0", lit(0));
