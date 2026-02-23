@@ -171,6 +171,16 @@ pub const Literal = union(enum) {
             else => {},
         }
     }
+    pub fn eql(self: Literal, other: Literal) bool {
+        if (std.meta.activeTag(self) != std.meta.activeTag(other)) return false;
+        return switch (self) {
+            .int   => |v| v == other.int,
+            .float => |v| @abs(v - other.float) < 0.01,
+            .str   => |v| std.mem.eql(u8, v, other.str),
+            .bool  => |v| v == other.bool,
+            .null  => true,
+        };
+    }
 };
 
 pub fn lit(value: anytype) Literal {
