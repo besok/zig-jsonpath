@@ -60,6 +60,13 @@ pub const JPQueryParser = struct {
         return .{ .input = input, .allocator = allocator };
     }
 
+    pub fn parse(self: *JPQueryParser) !model.JPQuery {
+        try self.expect('$', "Expected '$' at start of JSONPath query");
+        const segments = try self.parseSegments();
+        if (!self.isEnd()) return self.fail("Unexpected input after query");
+        return .{ .segments = segments };
+    }
+
     fn fail(self: *JPQueryParser, reason: []const u8) Error {
         self.err_desc = reason;
         return Error.UnexpectedChar;
@@ -70,8 +77,12 @@ pub const JPQueryParser = struct {
         return self.input[self.pos];
     }
 
-    fn move(self: *JPQueryParser) !void {
-        if (self.pos < self.input.len) self.pos += 1 else return Error.UnexpectedEnd;
+    fn move(self: *JPQueryParser, n: usize) !void {
+        if (self.pos + n <= self.input.len) {
+            self.pos += n;
+        } else {
+            return Error.UnexpectedEnd;
+        }
     }
 
     fn take(self: *JPQueryParser) ?u8 {
@@ -106,18 +117,18 @@ pub const JPQueryParser = struct {
     fn parseString(self: *JPQueryParser) ![]const u8 {
         const quote = self.peek() orelse return self.fail("Unexpected String Literal");
         if (quote != '"' and quote != '\'') return self.fail("The Quote is expected");
-        try self.move(); // consume opening quote
+        try self.move(1); // consume opening quote
 
         var buf: std.ArrayList(u8) = .empty;
 
         while (self.peek()) |ch| {
             if (ch == quote) {
-                try self.move(); // consume closing quote
+                try self.move(1);
                 return buf.toOwnedSlice(self.allocator);
             }
 
             if (ch == '\\') {
-                try self.move(); // consume backslash
+                try self.move(1);
                 const escaped = self.take() orelse return self.fail("The String ends unexpectedly");
 
                 const unescaped: u8 = switch (escaped) {
@@ -140,7 +151,7 @@ pub const JPQueryParser = struct {
                 try buf.append(self.allocator, unescaped);
             } else if (isUnescaped(ch, quote)) {
                 try buf.append(self.allocator, ch);
-                try self.move();
+                try self.move(1);
             } else {
                 return self.fail("Invalid Character");
             }
@@ -155,7 +166,7 @@ pub const JPQueryParser = struct {
         var i: u8 = 0;
         while (i < 4) : (i += 1) {
             const ch = self.take() orelse return self.fail("Incomplete Unicode Escape");
-            const digit = self.hexDigit(ch) orelse return self.fail("Invalid Hex Digit");
+            const digit = self.parseHexDigit(ch) orelse return self.fail("Invalid Hex Digit");
             codepoint = (codepoint << 4) | digit;
         }
 
@@ -169,7 +180,7 @@ pub const JPQueryParser = struct {
             i = 0;
             while (i < 4) : (i += 1) {
                 const ch = self.take() orelse return self.fail("Incomplete Unicode Escape");
-                const digit = self.hexDigit(ch) orelse return self.fail("Invalid Hex Digit");
+                const digit = self.parseHexDigit(ch) orelse return self.fail("Invalid Hex Digit");
                 low = (low << 4) | digit;
             }
 
@@ -180,7 +191,7 @@ pub const JPQueryParser = struct {
         return codepoint;
     }
 
-    fn hexDigit(self: *JPQueryParser, ch: u8) ?u21 {
+    fn parseHexDigit(self: *JPQueryParser, ch: u8) ?u21 {
         _ = self;
         return switch (ch) {
             '0'...'9' => ch - '0',
@@ -202,27 +213,18 @@ pub const JPQueryParser = struct {
         const start = self.pos;
 
         const first = self.peek() orelse return self.fail("Expected Identifier");
-        if (!self.isNameFirst(first)) return self.fail("Invalid Identifier");
-        try self.move();
+        if (!isNameFirst(first)) return self.fail("Invalid Identifier");
+        try self.move(1);
 
         while (self.peek()) |ch| {
-            if (!self.isNameChar(ch)) break;
-            try self.move();
+            if (!isNameChar(ch)) break;
+            try self.move(1);
         }
 
         return self.input[start..self.pos];
     }
 
-    fn isNameFirst(self: *JPQueryParser, ch: u8) bool {
-        _ = self;
-        return std.ascii.isAlphabetic(ch) or
-            ch == '_' or
-            ch >= 0x80; // simplified: includes 0x80..0xD7FF and 0xE000..0x10FFFF
-    }
 
-    fn isNameChar(self: *JPQueryParser, ch: u8) bool {
-        return self.isNameFirst(ch) or std.ascii.isDigit(ch);
-    }
 
     fn parseNumber(self: *JPQueryParser) !model.Literal {
         const start = self.pos;
@@ -238,13 +240,12 @@ pub const JPQueryParser = struct {
         }
 
         if (!self.is('0')) {
-            // safe_int: non-zero digit followed by more digits
             if (!std.ascii.isDigit(self.peek() orelse 0)) {
                 return self.fail("Expected Digit");
             }
             while (self.peek()) |ch| {
                 if (!std.ascii.isDigit(ch)) break;
-                try self.move();
+                try self.move(1);
             }
         }
 
@@ -255,20 +256,20 @@ pub const JPQueryParser = struct {
             }
             while (self.peek()) |ch| {
                 if (!std.ascii.isDigit(ch)) break;
-                try self.move();
+                try self.move(1);
             }
         }
 
         if (self.peek() == 'e' or self.peek() == 'E') {
             is_float = true;
-            try self.move();
+            try self.move(1);
             _ = self.is('+') or self.is('-');
             if (!std.ascii.isDigit(self.peek() orelse 0)) {
                 return self.fail("Expected Digit in Exponent");
             }
             while (self.peek()) |ch| {
                 if (!std.ascii.isDigit(ch)) break;
-                try self.move();
+                try self.move(1);
             }
         }
 
@@ -304,7 +305,6 @@ pub const JPQueryParser = struct {
 
         if (self.matchStr("true")) return .{ .bool = true };
         if (self.matchStr("false")) return .{ .bool = false };
-
         if (self.matchStr("null")) return .null;
 
         return self.fail("expected literal");
@@ -320,28 +320,555 @@ pub const JPQueryParser = struct {
     fn skipWhitespace(self: *JPQueryParser) !void {
         while (self.peek()) |ch| {
             switch (ch) {
-                ' ', '\t', '\r', '\n' => try self.move(),
+                ' ', '\t', '\r', '\n' => try self.move(1),
                 else => break,
             }
         }
     }
+    pub fn parseFunctionExpr(self: *JPQueryParser) !model.TestFunction {
+        if (self.matchStr("length")) return .{ .length = .{ .arg = try self.parseOneArg() } };
+        if (self.matchStr("value")) return .{ .value = .{ .arg = try self.parseOneArg() } };
+        if (self.matchStr("count")) return .{ .count = .{ .arg = try self.parseOneArg() } };
+        if (self.matchStr("search")) return try self.parseTwoArgFn(.search);
+        if (self.matchStr("match")) return try self.parseTwoArgFn(.match);
 
-    pub fn parse(self: *JPQueryParser) Error!model.JPQuery {
-        try self.expect('$', null);
-        return model.JPQuery{ .segments = &[_]model.Segment{} };
+        const name = try self.parseMemberName();
+        var args = std.ArrayList(model.FnArg).init(self.allocator);
+        errdefer {
+            for (args.items) |*a| a.deinit(self.allocator);
+            args.deinit();
+        }
+
+        try self.skipWhitespace();
+        try self.expect('(', "Expected '(' after function name");
+        try self.skipWhitespace();
+
+        if (!self.is(')')) {
+            try args.append(self.allocator, try self.parseFnArg());
+            try self.skipWhitespace();
+            while (self.is(',')) {
+                try self.skipWhitespace();
+                try args.append(self.allocator, try self.parseFnArg());
+                try self.skipWhitespace();
+            }
+            try self.expect(')', "Expected ')' to close function arguments");
+        }
+
+        return .{ .custom = .{ .name = name, .args = try args.toOwnedSlice() } };
+    }
+
+    fn parseOneArg(self: *JPQueryParser) !model.FnArg {
+        try self.skipWhitespace();
+        try self.expect('(', "Expected '('");
+        try self.skipWhitespace();
+        const arg = try self.parseFnArg();
+        try self.skipWhitespace();
+        try self.expect(')', "Expected ')'");
+        return arg;
+    }
+
+    fn parseTwoArgFn(self: *JPQueryParser, comptime tag: anytype) !model.TestFunction {
+        try self.skipWhitespace();
+        try self.expect('(', "Expected '('");
+        try self.skipWhitespace();
+        var lhs = try self.parseFnArg();
+        errdefer lhs.deinit(self.allocator);
+        try self.skipWhitespace();
+        try self.expect(',', "Expected ',' between arguments");
+        try self.skipWhitespace();
+        const rhs = try self.parseFnArg();
+        try self.skipWhitespace();
+        try self.expect(')', "Expected ')'");
+        return @unionInit(model.TestFunction, @tagName(tag), .{ .lhs = lhs, .rhs = rhs });
+    }
+
+    fn parseFnArg(self: *JPQueryParser) !model.FnArg {
+        const saved_pos = self.pos;
+        const saved_desc = self.err_desc;
+
+        if (self.parseLiteral()) |lit| {
+            return .{ .lit = lit };
+        } else |_| {
+            self.pos = saved_pos;
+            self.err_desc = saved_desc;
+        }
+
+        if (self.peek() == '(' or self.peek() == '!') {
+            const f = try self.allocator.create(model.Filter);
+            errdefer self.allocator.destroy(f);
+            f.* = try self.parseFilter();
+            return .{ .filter = f };
+        }
+
+        const t = try self.allocator.create(model.Test);
+        errdefer self.allocator.destroy(t);
+        t.* = try self.parseTest();
+        return .{ .test_arg = t };
+    }
+
+    fn restStartsWith(self: *JPQueryParser, s: []const u8) bool {
+        return std.mem.startsWith(u8, self.rest(), s);
+    }
+
+    pub fn parseSegments(self: *JPQueryParser) ![]model.Segment {
+        var segments = std.ArrayList(model.Segment).init(self.allocator);
+        errdefer {
+            for (segments.items) |*s| s.deinit(self.allocator);
+            segments.deinit();
+        }
+
+        try self.skipWhitespace();
+        while (self.peek()) |ch| {
+            if (ch != '.' and ch != '[') break;
+            const seg = try self.parseSegment();
+            try segments.append(self.allocator, seg);
+            try self.skipWhitespace();
+        }
+
+        return segments.toOwnedSlice();
+    }
+
+    fn parseSegment(self: *JPQueryParser) !model.Segment {
+        if (self.restStartsWith("..")) {
+            try self.move(2);
+            const inner = try self.parseDescendantInner();
+            const ptr = try self.allocator.create(model.Segment);
+            errdefer self.allocator.destroy(ptr);
+            ptr.* = inner;
+            return .{ .descendant = ptr };
+        }
+
+        if (self.peek() == '.') {
+            try self.move(1);
+            return try self.parseChildDot();
+        }
+
+        if (self.peek() == '[') {
+            return try self.parseBracketedSelection();
+        }
+
+        return self.fail("Expected segment");
+    }
+
+    fn parseDescendantInner(self: *JPQueryParser) !model.Segment {
+        if (self.peek() == '[') return try self.parseBracketedSelection();
+        if (self.peek() == '*') {
+            try self.move(1);
+            return .{ .selector = .wildcard };
+        }
+        const name = try self.parseMemberName();
+        return .{ .selector = .{ .name = name } };
+    }
+
+    fn parseChildDot(self: *JPQueryParser) !model.Segment {
+        if (self.peek() == '*') {
+            try self.move(1);
+            return .{ .selector = .wildcard };
+        }
+        const name = try self.parseMemberName();
+        return .{ .selector = .{ .name = name } };
+    }
+
+    fn parseBracketedSelection(self: *JPQueryParser) !model.Segment {
+        try self.expect('[', "Expected '['");
+        try self.skipWhitespace();
+
+        var selectors = std.ArrayList(model.Selector).init(self.allocator);
+        errdefer {
+            for (selectors.items) |*s| s.deinit(self.allocator);
+            selectors.deinit();
+        }
+
+        const first = try self.parseSelector();
+        try selectors.append(self.allocator, first);
+        try self.skipWhitespace();
+
+        while (self.is(',')) {
+            try self.skipWhitespace();
+            const sel = try self.parseSelector();
+            try selectors.append(self.allocator, sel);
+            try self.skipWhitespace();
+        }
+
+        try self.expect(']', "Expected ']'");
+
+        // single selector -> .selector, multiple -> .selectors
+        if (selectors.items.len == 1) {
+            const sel = selectors.items[0];
+            selectors.deinit();
+            return .{ .selector = sel };
+        }
+
+        return .{ .selectors = try selectors.toOwnedSlice() };
+    }
+
+    fn parseSelector(self: *JPQueryParser) !model.Selector {
+        const ch = self.peek() orelse return self.fail("Expected selector");
+
+        if (ch == '*') {
+            try self.move(1);
+            return .wildcard;
+        }
+
+        if (ch == '?') {
+            try self.move(1);
+            try self.skipWhitespace();
+            const f = try self.parseFilter();
+            return .{ .filter = f };
+        }
+
+        if (ch == '"' or ch == '\'') {
+            const s = try self.parseString();
+            return .{ .name = s };
+        }
+
+        if (ch == '-' or std.ascii.isDigit(ch) or ch == ':') {
+            return try self.parseIndexOrSlice();
+        }
+
+        if (isNameFirst(ch)) {
+            const name = try self.parseMemberName();
+            return .{ .name = name };
+        }
+
+        return self.fail("Unexpected selector");
+    }
+
+    fn parseIndexOrSlice(self: *JPQueryParser) !model.Selector {
+        if (self.peek() == ':') {
+            try self.move(1);
+            return try self.parseSliceTail(null);
+        }
+
+        const int_val = try self.parseSliceInt();
+
+        try self.skipWhitespace();
+
+        if (self.is(':')) {
+            return try self.parseSliceTail(int_val);
+        }
+
+        return .{ .index = int_val };
+    }
+
+    fn parseSliceInt(self: *JPQueryParser) !i64 {
+        const start = self.pos;
+        _ = self.is('-');
+        if (!std.ascii.isDigit(self.peek() orelse 0)) {
+            self.pos = start;
+            return self.fail("Expected integer");
+        }
+        while (self.peek()) |c| {
+            if (!std.ascii.isDigit(c)) break;
+            try self.move(1);
+        }
+        const s = self.input[start..self.pos];
+        const val = std.fmt.parseInt(i64, s, 10) catch return self.fail("Invalid integer");
+        if (!model.isValidInt(val)) return self.fail("Integer exceeds safe JavaScript range");
+        return val;
+    }
+
+    fn parseSliceTail(self: *JPQueryParser, start: ?i64) !model.Selector {
+        try self.skipWhitespace();
+
+        var end: ?i64 = null;
+        if (self.peek() != ':' and self.peek() != ']' and self.peek() != null) {
+            if (self.peek() == '-' or std.ascii.isDigit(self.peek() orelse 0)) {
+                end = try self.parseSliceInt();
+                try self.skipWhitespace();
+            }
+        }
+
+        var step: ?i64 = null;
+        if (self.is(':')) {
+            try self.skipWhitespace();
+            if (self.peek() == '-' or std.ascii.isDigit(self.peek() orelse 0)) {
+                step = try self.parseSliceInt();
+            }
+        }
+
+        return .{ .slice = .{ .start = start, .end = end, .step = step } };
+    }
+    pub fn parseFilter(self: *JPQueryParser) !model.Filter {
+        return try self.parseLogicalOr();
+    }
+
+    fn parseLogicalOr(self: *JPQueryParser) !model.Filter {
+        var items = std.ArrayList(model.Filter).init(self.allocator);
+        errdefer {
+            for (items.items) |*f| f.deinit(self.allocator);
+            items.deinit();
+        }
+
+        const first = try self.parseLogicalAnd();
+        try items.append(self.allocator, first);
+
+        try self.skipWhitespace();
+        while (self.restStartsWith("||")) {
+            try self.move(2);
+            try self.skipWhitespace();
+            const next = try self.parseLogicalAnd();
+            try items.append(self.allocator, next);
+            try self.skipWhitespace();
+        }
+
+        if (items.items.len == 1) {
+            const single = items.items[0];
+            items.deinit();
+            return single;
+        }
+
+        return .{ .ors = try items.toOwnedSlice() };
+    }
+
+    fn parseLogicalAnd(self: *JPQueryParser) !model.Filter {
+        var items = std.ArrayList(model.Filter).init(self.allocator);
+        errdefer {
+            for (items.items) |*f| f.deinit(self.allocator);
+            items.deinit();
+        }
+
+        const first = try self.parseAtom();
+        try items.append(self.allocator, first);
+
+        try self.skipWhitespace();
+        while (self.restStartsWith("&&")) {
+            try self.move(2);
+            try self.skipWhitespace();
+            const next = try self.parseAtom();
+            try items.append(self.allocator, next);
+            try self.skipWhitespace();
+        }
+
+        if (items.items.len == 1) {
+            const single = items.items[0];
+            items.deinit();
+            return single;
+        }
+
+        return .{ .ands = try items.toOwnedSlice() };
+    }
+
+    fn parseAtom(self: *JPQueryParser) !model.Filter {
+        const not = self.is('!');
+        try self.skipWhitespace();
+
+        if (self.peek() == '(') {
+            try self.move(1);
+            try self.skipWhitespace();
+            const inner = try self.parseLogicalOr();
+            try self.skipWhitespace();
+            try self.expect(')', "Expected ')'");
+
+            const ptr = try self.allocator.create(model.Filter);
+            errdefer self.allocator.destroy(ptr);
+            ptr.* = inner;
+            return .{ .atom = .{ .filter = .{ .expr = ptr, .not = not } } };
+        }
+
+
+        const saved_pos = self.pos;
+        const saved_desc = self.err_desc;
+
+        if (try self.tryCompExpr(not)) |filter| return filter;
+
+        self.pos = saved_pos;
+        self.err_desc = saved_desc;
+
+        return try self.parseTestExpr(not);
+    }
+
+    fn tryCompExpr(self: *JPQueryParser, not: bool) !?model.Filter {
+        _ = not;
+        const lhs = self.parseComparable() catch return null;
+
+        try self.skipWhitespace();
+        const op = self.parseCompOp() orelse {
+            var lhs_mut = lhs;
+            lhs_mut.deinit(self.allocator);
+            return null;
+        };
+
+        try self.skipWhitespace();
+        var lhs_mut = lhs;
+        errdefer lhs_mut.deinit(self.allocator);
+        const rhs = try self.parseComparable();
+
+        const bin = model.BinaryOp{ .lhs = lhs_mut, .rhs = rhs };
+        const cmp: model.Comparison = switch (op) {
+            .eq => .{ .eq = bin },
+            .ne => .{ .ne = bin },
+            .lt => .{ .lt = bin },
+            .lte => .{ .lte = bin },
+            .gt => .{ .gt = bin },
+            .gte => .{ .gte = bin },
+        };
+        return .{ .atom = .{ .compare = cmp } };
+    }
+
+    const CompOp = enum { eq, ne, lt, lte, gt, gte };
+
+    fn parseCompOp(self: *JPQueryParser) !?CompOp {
+        if (self.restStartsWith("==")) {
+            try self.move(2);
+            return .eq;
+        }
+        if (self.restStartsWith("!=")) {
+            try self.move(2);
+            return .ne;
+        }
+        if (self.restStartsWith("<=")) {
+            try self.move(2);
+            return .lte;
+        }
+        if (self.restStartsWith(">=")) {
+            try self.move(2);
+            return .gte;
+        }
+        if (self.restStartsWith("<")) {
+            try self.move(1);
+            return .lt;
+        }
+        if (self.restStartsWith(">")) {
+            try self.move(1);
+            return .gt;
+        }
+        return null;
+    }
+
+    fn parseComparable(self: *JPQueryParser) !model.Comparable {
+        const saved_pos = self.pos;
+        const saved_desc = self.err_desc;
+
+        if (self.parseLiteral()) |l| {
+            return .{ .lit = l };
+        } else |_| {
+            self.pos = saved_pos;
+            self.err_desc = saved_desc;
+        }
+
+        const ch = self.peek() orelse return self.fail("Expected comparable");
+
+        if (ch == '@' or ch == '$') {
+            return .{ .query = try self.parseSingularQuery() };
+        }
+
+        return .{ .function = try self.parseFunctionExpr() };
+    }
+
+    fn parseTestExpr(self: *JPQueryParser, not: bool) !model.Filter {
+        const t = try self.allocator.create(model.Test);
+        errdefer self.allocator.destroy(t);
+        t.* = try self.parseTest();
+        return .{ .atom = .{ .test_expr = .{ .expr = t, .not = not } } };
+    }
+
+    fn parseTest(self: *JPQueryParser) !model.Test {
+        const ch = self.peek() orelse return self.fail("Expected test");
+
+        if (ch == '@') {
+            try self.move(1);
+            const segs = try self.parseSegments();
+            return .{ .rel_query = segs };
+        }
+
+        if (ch == '$') {
+            try self.move(1);
+            const segs = try self.parseSegments();
+            return .{ .abs_query = .{ .segments = segs } };
+        }
+
+        return .{ .function = try self.parseFunctionExpr() };
+    }
+
+    pub fn parseSingularQuery(self: *JPQueryParser) !model.SingularQuery {
+        const ch = self.peek() orelse return self.fail("Expected singular query");
+
+        if (ch == '@') {
+            try self.move(1);
+            const segs = try self.parseSingularQuerySegments();
+            return .{ .current = segs };
+        }
+
+        if (ch == '$') {
+            try self.move(1);
+            const segs = try self.parseSingularQuerySegments();
+            return .{ .root = segs };
+        }
+
+        return self.fail("Expected '@' or '$'");
+    }
+
+    fn parseSingularQuerySegments(self: *JPQueryParser) ![]model.SingularQuerySegment {
+        var segs = std.ArrayList(model.SingularQuerySegment).init(self.allocator);
+        errdefer {
+            for (segs.items) |*s| s.deinit(self.allocator);
+            segs.deinit();
+        }
+
+        try self.skipWhitespace();
+        while (self.peek()) |ch| {
+            if (ch == '[') {
+                const seg = try self.parseBracketedSingularSegment();
+                try segs.append(self.allocator, seg);
+            } else if (ch == '.') {
+                try self.move(1);
+                const name = try self.parseMemberName();
+                try segs.append(self.allocator, .{ .name = name });
+            } else {
+                break;
+            }
+            try self.skipWhitespace();
+        }
+
+        return segs.toOwnedSlice();
+    }
+
+    fn parseBracketedSingularSegment(self: *JPQueryParser) !model.SingularQuerySegment {
+        try self.expect('[', "Expected '['");
+        try self.skipWhitespace();
+
+        const ch = self.peek() orelse return self.fail("Expected name or index");
+
+        if (std.ascii.isDigit(ch) or ch == '-') {
+            const val = try self.parseSliceInt();
+            try self.skipWhitespace();
+            try self.expect(']', "Expected ']'");
+            return .{ .index = val };
+        }
+
+        if (ch == '"' or ch == '\'') {
+            const name = try self.parseString();
+            try self.skipWhitespace();
+            try self.expect(']', "Expected ']'");
+            return .{ .name = name };
+        }
+
+        return self.fail("Expected name or index in singular query segment");
     }
 };
 
+fn isNameFirst( ch: u8) bool {
+    return std.ascii.isAlphabetic(ch) or
+        ch == '_' or
+        ch >= 0x80; // simplified: includes 0x80..0xD7FF and 0xE000..0x10FFFF
+    }
+
+fn isNameChar( ch: u8) bool {
+    return isNameFirst(ch) or std.ascii.isDigit(ch);
+}
+
 fn isUnescaped(ch: u8, quote: u8) bool {
     return switch (ch) {
-        0x00...0x1F => false,           // control characters
-        '\\' => false,                  // backslash always escaped
-        '"' => quote != '"',            // allowed unescaped only inside '...'
-        '\'' => quote != '\'',          // allowed unescaped only inside "..."
-        0x20...0x21,                    // space, !
-        0x23...0x26,                    // # $ % &
-        0x28...0x5B,                    // ( through [
-        0x5D...0x7F => true,            // ] through DEL
-        else => ch >= 0x80,             // non-ASCII
+        0x00...0x1F => false, // control characters
+        '\\' => false, // backslash always escaped
+        '"' => quote != '"', // allowed unescaped only inside '...'
+        '\'' => quote != '\'', // allowed unescaped only inside "..."
+        0x20...0x21, // space, !
+        0x23...0x26, // # $ % &
+        0x28...0x5B, // ( through [
+        0x5D...0x7F,
+        => true, // ] through DEL
+        else => ch >= 0x80, // non-ASCII
     };
 }

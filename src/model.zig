@@ -45,11 +45,33 @@ pub const Selector = union(enum) {
     }
 };
 
+/// Creates a Selector from a value. Usage:
+///
+///   sel(wildcard)        → .wildcard          (pass the `wildcard` sentinel: `pub const wildcard = {};`)
+///   sel("foo")           → .name("foo")        (string literal or []const u8)
+///   sel(1)               → .index(1)           (integer)
+///   sel(slice(1, 2, 3))  → .slice(1, 2, 3)    (use the `slice()` helper)
+///   sel(myFilter)        → .filter(myFilter)   (model.Filter value)
+pub fn sel(value: anytype) Selector {
+    const T = @TypeOf(value);
+    if (T == void)         return .wildcard;
+    if (T == Filter) return .{ .filter = value };
+    if (T == Slice)  return .{ .slice = value };
+    return switch (@typeInfo(T)) {
+        .int, .comptime_int => .{ .index = @as(i64, @intCast(value)) },
+        .pointer, .array    => .{ .name = value },
+        else => @compileError("Unsupported type for sel()"),
+    };
+}
+
 pub const Slice = struct {
     start: ?i64,
     end: ?i64,
     step: ?i64,
 };
+pub fn slice(start: ?i64, end: ?i64, step: ?i64) Slice {
+    return .{ .start = start, .end = end, .step = step };
+}
 
 pub const Filter = union(enum) {
     ors: []Filter,
@@ -174,11 +196,11 @@ pub const Literal = union(enum) {
     pub fn eql(self: Literal, other: Literal) bool {
         if (std.meta.activeTag(self) != std.meta.activeTag(other)) return false;
         return switch (self) {
-            .int   => |v| v == other.int,
+            .int => |v| v == other.int,
             .float => |v| @abs(v - other.float) < 0.01,
-            .str   => |v| std.mem.eql(u8, v, other.str),
-            .bool  => |v| v == other.bool,
-            .null  => true,
+            .str => |v| std.mem.eql(u8, v, other.str),
+            .bool => |v| v == other.bool,
+            .null => true,
         };
     }
 };
@@ -260,7 +282,7 @@ pub const SingularQuerySegment = union(enum) {
     }
 };
 
-pub const MAX_INT: i64 = 9007199254740991;  // 2^53 - 1, maximum safe integer in JavaScript
+pub const MAX_INT: i64 = 9007199254740991; // 2^53 - 1, maximum safe integer in JavaScript
 pub const MIN_INT: i64 = -9007199254740991; // -(2^53 - 1), minimum safe integer in JavaScript
 
 pub fn isValidInt(value: i64) bool {
