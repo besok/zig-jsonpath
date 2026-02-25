@@ -6,7 +6,7 @@ const slice = model.slice;
 const sel = model.sel;
 const sqs = model.sqs;
 
-fn assertParseSuccess(
+fn expectGood(
     input: []const u8,
     expected: anytype,
     comptime parseFn: anytype,
@@ -21,7 +21,7 @@ fn assertParseSuccess(
     }
 }
 
-fn assertParseFails(input: []const u8, comptime parseFn: anytype) !void {
+fn expectFail(input: []const u8, comptime parseFn: anytype) !void {
     var p = JPQueryParser.init(input, std.testing.allocator);
     const res = parseFn(&p);
     try std.testing.expectError(error.UnexpectedChar, res);
@@ -49,69 +49,63 @@ pub const SingularQuerySegments = struct {
     }
 };
 
-pub fn sqSegs(comptime segs: anytype) SingularQuerySegments {
-    var arr: [segs.len]model.SingularQuerySegment = undefined;
-    inline for (segs, 0..) |s, i| arr[i] = s;
-    return .{ .segs = @constCast(&arr) };
-}
-
 fn parseSingularQuerySegments(p: *JPQueryParser) !SingularQuerySegments {
     const segs = try p.parseSingularQuerySegments();
     return .{ .segs = segs };
 }
 
 test "literal" {
-    try assertParseSuccess("'☺'", lit("☺"), JPQueryParser.parseLiteral);
-    try assertParseSuccess("' '", lit(" "), JPQueryParser.parseLiteral);
-    try assertParseSuccess("'\"try'", lit("\"try"), JPQueryParser.parseLiteral);
-    try assertParseSuccess("null", lit(null), JPQueryParser.parseLiteral);
-    try assertParseSuccess("false", lit(false), JPQueryParser.parseLiteral);
-    try assertParseSuccess("true", lit(true), JPQueryParser.parseLiteral);
-    try assertParseSuccess("\"hello\"", lit("hello"), JPQueryParser.parseLiteral);
-    try assertParseSuccess("'hello'", lit("hello"), JPQueryParser.parseLiteral);
-    try assertParseSuccess("'hel\\'lo'", lit("hel'lo"), JPQueryParser.parseLiteral);
-    try assertParseSuccess("'hel\"lo'", lit("hel\"lo"), JPQueryParser.parseLiteral);
-    try assertParseSuccess("'hel\\nlo'", lit("hel\nlo"), JPQueryParser.parseLiteral);
-    try assertParseSuccess("1", lit(1), JPQueryParser.parseLiteral);
-    try assertParseSuccess("0", lit(0), JPQueryParser.parseLiteral);
-    try assertParseSuccess("-0", lit(0), JPQueryParser.parseLiteral);
-    try assertParseSuccess("1.2", lit(1.2), JPQueryParser.parseLiteral);
-    try assertParseSuccess("9007199254740990", lit(9007199254740990), JPQueryParser.parseLiteral);
+    try expectGood("'☺'", lit("☺"), JPQueryParser.parseLiteral);
+    try expectGood("' '", lit(" "), JPQueryParser.parseLiteral);
+    try expectGood("'\"try'", lit("\"try"), JPQueryParser.parseLiteral);
+    try expectGood("null", lit(null), JPQueryParser.parseLiteral);
+    try expectGood("false", lit(false), JPQueryParser.parseLiteral);
+    try expectGood("true", lit(true), JPQueryParser.parseLiteral);
+    try expectGood("\"hello\"", lit("hello"), JPQueryParser.parseLiteral);
+    try expectGood("'hello'", lit("hello"), JPQueryParser.parseLiteral);
+    try expectGood("'hel\\'lo'", lit("hel'lo"), JPQueryParser.parseLiteral);
+    try expectGood("'hel\"lo'", lit("hel\"lo"), JPQueryParser.parseLiteral);
+    try expectGood("'hel\\nlo'", lit("hel\nlo"), JPQueryParser.parseLiteral);
+    try expectGood("1", lit(1), JPQueryParser.parseLiteral);
+    try expectGood("0", lit(0), JPQueryParser.parseLiteral);
+    try expectGood("-0", lit(0), JPQueryParser.parseLiteral);
+    try expectGood("1.2", lit(1.2), JPQueryParser.parseLiteral);
+    try expectGood("9007199254740990", lit(9007199254740990), JPQueryParser.parseLiteral);
 
-    try assertParseFails("\"\n\"", JPQueryParser.parseLiteral);
-    try assertParseFails("hel\\\"lo", JPQueryParser.parseLiteral);
-    try assertParseFails("9007199254740995", JPQueryParser.parseLiteral);
+    try expectFail("\"\n\"", JPQueryParser.parseLiteral);
+    try expectFail("hel\\\"lo", JPQueryParser.parseLiteral);
+    try expectFail("9007199254740995", JPQueryParser.parseLiteral);
 }
 
 test "slice selector" {
-    try assertParseSuccess(":", sel(slice(null, null, null)), JPQueryParser.parseIndexOrSlice);
-    try assertParseSuccess("::", sel(slice(null, null, null)), JPQueryParser.parseIndexOrSlice);
-    try assertParseSuccess("1:", sel(slice(1, null, null)), JPQueryParser.parseIndexOrSlice);
-    try assertParseSuccess("1:1", sel(slice(1, 1, null)), JPQueryParser.parseIndexOrSlice);
-    try assertParseSuccess("1:1:1", sel(slice(1, 1, 1)), JPQueryParser.parseIndexOrSlice);
-    try assertParseSuccess(":1:1", sel(slice(null, 1, 1)), JPQueryParser.parseIndexOrSlice);
-    try assertParseSuccess("::1", sel(slice(null, null, 1)), JPQueryParser.parseIndexOrSlice);
-    try assertParseSuccess("1::1", sel(slice(1, null, 1)), JPQueryParser.parseIndexOrSlice);
+    try expectGood(":", sel(slice(null, null, null)), JPQueryParser.parseIndexOrSlice);
+    try expectGood("::", sel(slice(null, null, null)), JPQueryParser.parseIndexOrSlice);
+    try expectGood("1:", sel(slice(1, null, null)), JPQueryParser.parseIndexOrSlice);
+    try expectGood("1:1", sel(slice(1, 1, null)), JPQueryParser.parseIndexOrSlice);
+    try expectGood("1:1:1", sel(slice(1, 1, 1)), JPQueryParser.parseIndexOrSlice);
+    try expectGood(":1:1", sel(slice(null, 1, 1)), JPQueryParser.parseIndexOrSlice);
+    try expectGood("::1", sel(slice(null, null, 1)), JPQueryParser.parseIndexOrSlice);
+    try expectGood("1::1", sel(slice(1, null, 1)), JPQueryParser.parseIndexOrSlice);
 
-    try assertParseFails("-0:", JPQueryParser.parseIndexOrSlice);
-    try assertParseFails("9007199254740995", JPQueryParser.parseIndexOrSlice);
+    try expectFail("-0:", JPQueryParser.parseIndexOrSlice);
+    try expectFail("9007199254740995", JPQueryParser.parseIndexOrSlice);
 }
 
 test "singular query segments" {
     var segs_bb = [_]model.SingularQuerySegment{ sqs("b"), sqs("b") };
-    try assertParseSuccess("[\"b\"][\"b\"]", SingularQuerySegments{ .segs = &segs_bb }, parseSingularQuerySegments);
+    try expectGood("[\"b\"][\"b\"]", SingularQuerySegments{ .segs = &segs_bb }, parseSingularQuerySegments);
 
     var segs_21 = [_]model.SingularQuerySegment{ sqs(2), sqs(1) };
-    try assertParseSuccess("[2][1]", SingularQuerySegments{ .segs = &segs_21 }, parseSingularQuerySegments);
+    try expectGood("[2][1]", SingularQuerySegments{ .segs = &segs_21 }, parseSingularQuerySegments);
 
     var segs_2a = [_]model.SingularQuerySegment{ sqs(2), sqs("a") };
-    try assertParseSuccess("[2][\"a\"]", SingularQuerySegments{ .segs = &segs_2a }, parseSingularQuerySegments);
+    try expectGood("[2][\"a\"]", SingularQuerySegments{ .segs = &segs_2a }, parseSingularQuerySegments);
 
     var segs_ab = [_]model.SingularQuerySegment{ sqs("a"), sqs("b") };
-    try assertParseSuccess(".a.b", SingularQuerySegments{ .segs = &segs_ab }, parseSingularQuerySegments);
+    try expectGood(".a.b", SingularQuerySegments{ .segs = &segs_ab }, parseSingularQuerySegments);
 
     var segs_abc1 = [_]model.SingularQuerySegment{ sqs("a"), sqs("b"), sqs("c"), sqs(1) };
-    try assertParseSuccess(".a.b[\"c\"][1]", SingularQuerySegments{ .segs = &segs_abc1 }, parseSingularQuerySegments);
+    try expectGood(".a.b[\"c\"][1]", SingularQuerySegments{ .segs = &segs_abc1 }, parseSingularQuerySegments);
 }
 //
 // test "singular query" {
