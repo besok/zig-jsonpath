@@ -224,8 +224,6 @@ pub const JPQueryParser = struct {
         return self.input[start..self.pos];
     }
 
-
-
     fn parseNumber(self: *JPQueryParser) !model.Literal {
         const start = self.pos;
         var is_float = false;
@@ -534,7 +532,7 @@ pub const JPQueryParser = struct {
         return self.fail("Unexpected selector");
     }
 
-    fn parseIndexOrSlice(self: *JPQueryParser) !model.Selector {
+    pub fn parseIndexOrSlice(self: *JPQueryParser) !model.Selector {
         if (self.peek() == ':') {
             try self.move(1);
             return try self.parseSliceTail(null);
@@ -553,11 +551,16 @@ pub const JPQueryParser = struct {
 
     fn parseSliceInt(self: *JPQueryParser) !i64 {
         const start = self.pos;
-        _ = self.is('-');
+        const is_neg = self.is('-');
         if (!std.ascii.isDigit(self.peek() orelse 0)) {
             self.pos = start;
             return self.fail("Expected integer");
         }
+        if (is_neg and self.peek() == '0') {
+            self.pos = start;
+            return self.fail("Negative zero is not valid in slice/index");
+        }
+
         while (self.peek()) |c| {
             if (!std.ascii.isDigit(c)) break;
             try self.move(1);
@@ -568,7 +571,7 @@ pub const JPQueryParser = struct {
         return val;
     }
 
-    fn parseSliceTail(self: *JPQueryParser, start: ?i64) !model.Selector {
+    pub fn parseSliceTail(self: *JPQueryParser, start: ?i64) !model.Selector {
         try self.skipWhitespace();
 
         var end: ?i64 = null;
@@ -665,7 +668,6 @@ pub const JPQueryParser = struct {
             ptr.* = inner;
             return .{ .atom = .{ .filter = .{ .expr = ptr, .not = not } } };
         }
-
 
         const saved_pos = self.pos;
         const saved_desc = self.err_desc;
@@ -799,11 +801,11 @@ pub const JPQueryParser = struct {
         return self.fail("Expected '@' or '$'");
     }
 
-    fn parseSingularQuerySegments(self: *JPQueryParser) ![]model.SingularQuerySegment {
-        var segs = std.ArrayList(model.SingularQuerySegment).init(self.allocator);
+    pub fn parseSingularQuerySegments(self: *JPQueryParser) ![]model.SingularQuerySegment {
+        var segs = std.ArrayListUnmanaged(model.SingularQuerySegment){};
         errdefer {
             for (segs.items) |*s| s.deinit(self.allocator);
-            segs.deinit();
+            segs.deinit(self.allocator);
         }
 
         try self.skipWhitespace();
@@ -814,14 +816,15 @@ pub const JPQueryParser = struct {
             } else if (ch == '.') {
                 try self.move(1);
                 const name = try self.parseMemberName();
-                try segs.append(self.allocator, .{ .name = name });
+                const duped = try self.allocator.dupe(u8, name); // always heap allocate
+                try segs.append(self.allocator, .{ .name = duped });
             } else {
                 break;
             }
             try self.skipWhitespace();
         }
 
-        return segs.toOwnedSlice();
+        return segs.toOwnedSlice(self.allocator);
     }
 
     fn parseBracketedSingularSegment(self: *JPQueryParser) !model.SingularQuerySegment {
@@ -848,13 +851,13 @@ pub const JPQueryParser = struct {
     }
 };
 
-fn isNameFirst( ch: u8) bool {
+fn isNameFirst(ch: u8) bool {
     return std.ascii.isAlphabetic(ch) or
         ch == '_' or
         ch >= 0x80; // simplified: includes 0x80..0xD7FF and 0xE000..0x10FFFF
-    }
+}
 
-fn isNameChar( ch: u8) bool {
+fn isNameChar(ch: u8) bool {
     return isNameFirst(ch) or std.ascii.isDigit(ch);
 }
 
