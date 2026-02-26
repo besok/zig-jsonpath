@@ -221,7 +221,7 @@ pub const JPQueryParser = struct {
             try self.move(1);
         }
 
-        return self.input[start..self.pos];
+        return self.allocator.dupe(u8, self.input[start..self.pos]);
     }
 
     fn parseNumber(self: *JPQueryParser) !model.Literal {
@@ -323,7 +323,7 @@ pub const JPQueryParser = struct {
             }
         }
     }
-    pub fn parseFunctionExpr(self: *JPQueryParser) !model.TestFunction {
+    pub fn parseFunctionExpr(self: *JPQueryParser) anyerror!model.TestFunction {
         if (self.matchStr("length")) return .{ .length = .{ .arg = try self.parseOneArg() } };
         if (self.matchStr("value")) return .{ .value = .{ .arg = try self.parseOneArg() } };
         if (self.matchStr("count")) return .{ .count = .{ .arg = try self.parseOneArg() } };
@@ -331,13 +331,12 @@ pub const JPQueryParser = struct {
         if (self.matchStr("match")) return try self.parseTwoArgFn(.match);
 
         const name = try self.parseMemberName();
-        var args = std.ArrayList(model.FnArg).init(self.allocator);
+        var args = std.ArrayListUnmanaged(model.FnArg){};
         errdefer {
             for (args.items) |*a| a.deinit(self.allocator);
-            args.deinit();
+            args.deinit(self.allocator);
         }
 
-        try self.skipWhitespace();
         try self.expect('(', "Expected '(' after function name");
         try self.skipWhitespace();
 
@@ -352,11 +351,10 @@ pub const JPQueryParser = struct {
             try self.expect(')', "Expected ')' to close function arguments");
         }
 
-        return .{ .custom = .{ .name = name, .args = try args.toOwnedSlice() } };
+        return .{ .custom = .{ .name = name, .args = try args.toOwnedSlice(self.allocator) } };
     }
 
     fn parseOneArg(self: *JPQueryParser) !model.FnArg {
-        try self.skipWhitespace();
         try self.expect('(', "Expected '('");
         try self.skipWhitespace();
         const arg = try self.parseFnArg();
@@ -366,7 +364,7 @@ pub const JPQueryParser = struct {
     }
 
     fn parseTwoArgFn(self: *JPQueryParser, comptime tag: anytype) !model.TestFunction {
-        try self.skipWhitespace();
+
         try self.expect('(', "Expected '('");
         try self.skipWhitespace();
         var lhs = try self.parseFnArg();
@@ -409,10 +407,10 @@ pub const JPQueryParser = struct {
     }
 
     pub fn parseSegments(self: *JPQueryParser) ![]model.Segment {
-        var segments = std.ArrayList(model.Segment).init(self.allocator);
+        var segments = std.ArrayListUnmanaged(model.Segment){};
         errdefer {
             for (segments.items) |*s| s.deinit(self.allocator);
-            segments.deinit();
+            segments.deinit(self.allocator);
         }
 
         try self.skipWhitespace();
@@ -423,7 +421,7 @@ pub const JPQueryParser = struct {
             try self.skipWhitespace();
         }
 
-        return segments.toOwnedSlice();
+        return segments.toOwnedSlice(self.allocator);
     }
 
     fn parseSegment(self: *JPQueryParser) !model.Segment {
@@ -471,10 +469,10 @@ pub const JPQueryParser = struct {
         try self.expect('[', "Expected '['");
         try self.skipWhitespace();
 
-        var selectors = std.ArrayList(model.Selector).init(self.allocator);
+        var selectors = std.ArrayListUnmanaged(model.Selector){};
         errdefer {
             for (selectors.items) |*s| s.deinit(self.allocator);
-            selectors.deinit();
+            selectors.deinit(self.allocator);
         }
 
         const first = try self.parseSelector();
@@ -493,11 +491,11 @@ pub const JPQueryParser = struct {
         // single selector -> .selector, multiple -> .selectors
         if (selectors.items.len == 1) {
             const sel = selectors.items[0];
-            selectors.deinit();
+            selectors.deinit(self.allocator);
             return .{ .selector = sel };
         }
 
-        return .{ .selectors = try selectors.toOwnedSlice() };
+        return .{ .selectors = try selectors.toOwnedSlice(self.allocator) };
     }
 
     fn parseSelector(self: *JPQueryParser) !model.Selector {
@@ -596,11 +594,11 @@ pub const JPQueryParser = struct {
         return try self.parseLogicalOr();
     }
 
-    fn parseLogicalOr(self: *JPQueryParser) !model.Filter {
-        var items = std.ArrayList(model.Filter).init(self.allocator);
+    fn parseLogicalOr(self: *JPQueryParser) anyerror!model.Filter {
+        var items = std.ArrayListUnmanaged(model.Filter){};
         errdefer {
             for (items.items) |*f| f.deinit(self.allocator);
-            items.deinit();
+            items.deinit(self.allocator);
         }
 
         const first = try self.parseLogicalAnd();
@@ -617,18 +615,18 @@ pub const JPQueryParser = struct {
 
         if (items.items.len == 1) {
             const single = items.items[0];
-            items.deinit();
+            items.deinit(self.allocator);
             return single;
         }
 
-        return .{ .ors = try items.toOwnedSlice() };
+        return .{ .ors = try items.toOwnedSlice(self.allocator) };
     }
 
     fn parseLogicalAnd(self: *JPQueryParser) !model.Filter {
-        var items = std.ArrayList(model.Filter).init(self.allocator);
+        var items = std.ArrayListUnmanaged(model.Filter){};
         errdefer {
             for (items.items) |*f| f.deinit(self.allocator);
-            items.deinit();
+            items.deinit(self.allocator);
         }
 
         const first = try self.parseAtom();
@@ -645,11 +643,11 @@ pub const JPQueryParser = struct {
 
         if (items.items.len == 1) {
             const single = items.items[0];
-            items.deinit();
+            items.deinit(self.allocator);
             return single;
         }
 
-        return .{ .ands = try items.toOwnedSlice() };
+        return .{ .ands = try items.toOwnedSlice(self.allocator) };
     }
 
     fn parseAtom(self: *JPQueryParser) !model.Filter {
@@ -685,7 +683,7 @@ pub const JPQueryParser = struct {
         const lhs = self.parseComparable() catch return null;
 
         try self.skipWhitespace();
-        const op = self.parseCompOp() orelse {
+        const op = (try self.parseCompOp()) orelse {
             var lhs_mut = lhs;
             lhs_mut.deinit(self.allocator);
             return null;
@@ -738,7 +736,7 @@ pub const JPQueryParser = struct {
         return null;
     }
 
-    fn parseComparable(self: *JPQueryParser) !model.Comparable {
+    pub fn parseComparable(self: *JPQueryParser) !model.Comparable {
         const saved_pos = self.pos;
         const saved_desc = self.err_desc;
 
@@ -816,8 +814,7 @@ pub const JPQueryParser = struct {
             } else if (ch == '.') {
                 try self.move(1);
                 const name = try self.parseMemberName();
-                const duped = try self.allocator.dupe(u8, name); // always heap allocate
-                try segs.append(self.allocator, .{ .name = duped });
+                try segs.append(self.allocator, .{ .name = name });
             } else {
                 break;
             }

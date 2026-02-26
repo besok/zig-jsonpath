@@ -3,13 +3,13 @@ const model = @import("model.zig");
 const jsp = @import("parser.zig");
 
 pub const JsonPathResult = struct {
-    parsed_json: std.json.Parsed(std.json.Value),
+    json: std.json.Parsed(std.json.Value),
+    path: *model.JPQuery,
     results: []*std.json.Value,
     allocator: std.mem.Allocator,
-    path: *model.JPQuery,
 
     pub fn deinit(self: JsonPathResult) void {
-        self.parsed_json.deinit();
+        self.json.deinit();
         self.allocator.free(self.results);
         self.path.deinit(self.allocator);
     }
@@ -22,9 +22,9 @@ pub fn perform_query(
 ) !JsonPathResult {
 
     return JsonPathResult{
-        .parsed_json = parsed_json,
-        .results = try allocator.alloc(*std.json.Value, 0),
+        .json = parsed_json,
         .path = path,
+        .results = try allocator.alloc(*std.json.Value, 0),
         .allocator = allocator,
     };
 }

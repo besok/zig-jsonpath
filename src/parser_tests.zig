@@ -5,6 +5,10 @@ const lit = model.lit;
 const slice = model.slice;
 const sel = model.sel;
 const sqs = model.sqs;
+const cmp = model.cmp;
+const fCmp = model.filterCmp;
+const fOr = model.filterOr;
+const eq = model.eq;
 
 fn expectGood(
     input: []const u8,
@@ -107,105 +111,125 @@ test "singular query segments" {
     var segs_abc1 = [_]model.SingularQuerySegment{ sqs("a"), sqs("b"), sqs("c"), sqs(1) };
     try expectGood(".a.b[\"c\"][1]", SingularQuerySegments{ .segs = &segs_abc1 }, parseSingularQuerySegments);
 }
-//
-// test "singular query" {
-//     try assertParseSuccess("@.a.b", h.sqCurrent(&.{ h.sqSegName("a"), h.sqSegName("b") }), JPQueryParser.parseSingularQuery);
-//     try assertParseSuccess("@",     h.sqCurrent(&.{}),                                      JPQueryParser.parseSingularQuery);
-//     try assertParseSuccess("$",     h.sqRoot(&.{}),                                         JPQueryParser.parseSingularQuery);
-//     try assertParseSuccess("$.a.b.c", h.sqRoot(&.{ h.sqSegName("a"), h.sqSegName("b"), h.sqSegName("c") }), JPQueryParser.parseSingularQuery);
-//     try assertParseSuccess("$[\"a\"].b[3]", h.sqRoot(&.{ h.sqSegName("a"), h.sqSegName("b"), h.sqSegIndex(3) }), JPQueryParser.parseSingularQuery);
-// }
-//
-// test "comparable" {
-//     try assertParseSuccess("1",       h.cmpLit(h.litInt(1)),                                              JPQueryParser.parseComparable);
-//     try assertParseSuccess("\"a\"",   h.cmpLit(h.lit("a")),                                               JPQueryParser.parseComparable);
-//     try assertParseSuccess("@.a.b.c", h.cmpQuery(h.sqCurrent(&.{ h.sqSegName("a"), h.sqSegName("b"), h.sqSegName("c") })), JPQueryParser.parseComparable);
-//     try assertParseSuccess("$.a.b.c", h.cmpQuery(h.sqRoot(&.{ h.sqSegName("a"), h.sqSegName("b"), h.sqSegName("c") })),    JPQueryParser.parseComparable);
-//     try assertParseSuccess("$[1]",    h.cmpQuery(h.sqRoot(&.{ h.sqSegIndex(1) })),                        JPQueryParser.parseComparable);
-// }
-//
-// test "comp expr" {
-//     try assertParseSuccess(
-//         "@.a.b.c == 1",
-//         h.cmp("==",
-//             h.cmpQuery(h.sqCurrent(&.{ h.sqSegName("a"), h.sqSegName("b"), h.sqSegName("c") })),
-//             h.cmpLit(h.litInt(1)),
-//         ),
-//         JPQueryParser.parseFilter,
-//     );
-// }
-//
-// test "filter atom" {
-//     try assertParseSuccess(
-//         "1 > 2",
-//         h.filterAtom(h.atomCmp(h.cmp(">", h.cmpLit(h.litInt(1)), h.cmpLit(h.litInt(2))))),
-//         JPQueryParser.parseFilter,
-//     );
-//     try assertParseSuccess(
-//         "!(@.a == 1 || @.b == 2)",
-//         h.filterAtom(try h.atomFilter(std.testing.allocator,
-//             h.filterOr(&.{
-//                 h.filterAtom(h.atomCmp(h.cmp("==",
-//                     h.cmpQuery(h.sqCurrent(&.{ h.sqSegName("a") })),
-//                     h.cmpLit(h.litInt(1)),
-//                 ))),
-//                 h.filterAtom(h.atomCmp(h.cmp("==",
-//                     h.cmpQuery(h.sqCurrent(&.{ h.sqSegName("b") })),
-//                     h.cmpLit(h.litInt(2)),
-//                 ))),
-//             }),
-//             true,
-//         )),
-//         JPQueryParser.parseFilter,
-//     );
-// }
-//
-// test "function expr" {
-//     try assertParseSuccess(
-//         "length(1)",
-//         model.TestFunction{ .length = .{ .arg = h.argLit(h.litInt(1)) } },
-//         JPQueryParser.parseFunctionExpr,
-//     );
-//     try assertParseSuccess(
-//         "length(true)",
-//         model.TestFunction{ .length = .{ .arg = h.argLit(h.litBool(true)) } },
-//         JPQueryParser.parseFunctionExpr,
-//     );
-//     try assertParseSuccess(
-//         "search(@, \"abc\")",
-//         model.TestFunction{ .search = .{
-//             .lhs = try h.argTest(std.testing.allocator, model.Test{ .rel_query = &.{} }),
-//             .rhs = h.argLit(h.lit("abc")),
-//         }},
-//         JPQueryParser.parseFunctionExpr,
-//     );
-//     try assertParseSuccess(
-//         "count(@.a)",
-//         model.TestFunction{ .count = .{ .arg = try h.argTest(std.testing.allocator,
-//             model.Test{ .rel_query = &.{ h.seg(h.sel(h.selectorName("a"))) } },
-//         )}},
-//         JPQueryParser.parseFunctionExpr,
-//     );
-//
-//     try assertParseFails("count\t(@.*)", JPQueryParser.parseFunctionExpr);
-// }
-//
-// test "full query" {
-//     const atom = h.filterAtom(h.atomCmp(h.cmp(">",
-//         h.cmpQuery(h.sqCurrent(&.{ h.sqSegName("a"), h.sqSegName("b") })),
-//         h.cmpLit(h.litInt(1)),
-//     )));
-//     try assertParseSuccess(
-//         "$.a.b[?@.a.b > 1]",
-//         h.jpQuery(&.{
-//             h.seg(h.sel(h.selectorName("a"))),
-//             h.seg(h.sel(h.selectorName("b"))),
-//             h.seg(h.sel(h.selectorFilter(atom))),
-//         }),
-//         JPQueryParser.parse,
-//     );
-// }
-//
-// test "parse root only" {
-//     try assertParseSuccess("$", h.jpQuery(&.{}), JPQueryParser.parse);
-// }
+
+test "singular query" {
+    var segs_ab = [_]model.SingularQuerySegment{ sqs("a"), sqs("b") };
+    try expectGood("@.a.b", model.SingularQuery{ .current = &segs_ab }, JPQueryParser.parseSingularQuery);
+
+    try expectGood("@", model.SingularQuery{ .current = &.{} }, JPQueryParser.parseSingularQuery);
+    try expectGood("$", model.SingularQuery{ .root = &.{} }, JPQueryParser.parseSingularQuery);
+
+    var segs_abc = [_]model.SingularQuerySegment{ sqs("a"), sqs("b"), sqs("c") };
+    try expectGood("$.a.b.c", model.SingularQuery{ .root = &segs_abc }, JPQueryParser.parseSingularQuery);
+
+    var segs_ab3 = [_]model.SingularQuerySegment{ sqs("a"), sqs("b"), sqs(3) };
+    try expectGood("$[\"a\"].b[3]", model.SingularQuery{ .root = &segs_ab3 }, JPQueryParser.parseSingularQuery);
+}
+test "comparable" {
+    try expectGood("1", cmp(lit(1)), JPQueryParser.parseComparable);
+    try expectGood("\"a\"", cmp(lit("a")), JPQueryParser.parseComparable);
+
+    var segs_abc_cur = [_]model.SingularQuerySegment{ sqs("a"), sqs("b"), sqs("c") };
+    try expectGood("@.a.b.c", cmp(model.SingularQuery{ .current = &segs_abc_cur }), JPQueryParser.parseComparable);
+
+    var segs_abc_root = [_]model.SingularQuerySegment{ sqs("a"), sqs("b"), sqs("c") };
+    try expectGood("$.a.b.c", cmp(model.SingularQuery{ .root = &segs_abc_root }), JPQueryParser.parseComparable);
+
+    var segs_1 = [_]model.SingularQuerySegment{sqs(1)};
+    try expectGood("$[1]", cmp(model.SingularQuery{ .root = &segs_1 }), JPQueryParser.parseComparable);
+}
+
+test "comp expr" {
+    var segs_abc = [_]model.SingularQuerySegment{ sqs("a"), sqs("b"), sqs("c") };
+    try expectGood(
+        "@.a.b.c == 1",
+        model.Filter{ .atom = .{ .compare = .{ .eq = .{
+            .lhs = cmp(model.SingularQuery{ .current = &segs_abc }),
+            .rhs = cmp(lit(1)),
+        } } } },
+        JPQueryParser.parseFilter,
+    );
+}
+test "filter atom" {
+    try expectGood(
+        "1 > 2",
+        model.Filter{ .atom = .{ .compare = .{ .gt = .{
+            .lhs = cmp(lit(1)),
+            .rhs = cmp(lit(2)),
+        } } } },
+        JPQueryParser.parseFilter,
+    );
+
+    var seg_a = [_]model.SingularQuerySegment{ sqs("a") };
+    var seg_b = [_]model.SingularQuerySegment{ sqs("b") };
+    var ors = [_]model.Filter{
+        fCmp(eq(cmp(model.SingularQuery{ .current = &seg_a }), cmp(lit(1)))),
+        fCmp(eq(cmp(model.SingularQuery{ .current = &seg_b }), cmp(lit(2)))),
+    };
+    const or_ptr = try std.testing.allocator.create(model.Filter);
+    defer std.testing.allocator.destroy(or_ptr);
+    or_ptr.* = fOr(&ors);
+    try expectGood(
+        "!(@.a == 1 || @.b == 2)",
+        model.Filter{ .atom = .{ .filter = .{ .expr = or_ptr, .not = true } } },
+        JPQueryParser.parseFilter,
+    );
+}
+test "function expr" {
+    try expectGood(
+        "length(1)",
+        model.TestFunction{ .length = .{ .arg = .{ .lit = lit(1) } } },
+        JPQueryParser.parseFunctionExpr,
+    );
+    try expectGood(
+        "length(true)",
+        model.TestFunction{ .length = .{ .arg = .{ .lit = lit(true) } } },
+        JPQueryParser.parseFunctionExpr,
+    );
+
+    const rel_empty = try std.testing.allocator.create(model.Test);
+    defer std.testing.allocator.destroy(rel_empty);
+    rel_empty.* = .{ .rel_query = &.{} };
+    try expectGood(
+        "search(@, \"abc\")",
+        model.TestFunction{ .search = .{
+            .lhs = .{ .test_arg = rel_empty },
+            .rhs = .{ .lit = lit("abc") },
+        }},
+        JPQueryParser.parseFunctionExpr,
+    );
+
+    var seg_a = [_]model.Segment{ .{ .selector = .{ .name = "a" } } };
+    const rel_a = try std.testing.allocator.create(model.Test);
+    defer std.testing.allocator.destroy(rel_a);
+    rel_a.* = .{ .rel_query = &seg_a };
+    try expectGood(
+        "count(@.a)",
+        model.TestFunction{ .count = .{ .arg = .{ .test_arg = rel_a } } },
+        JPQueryParser.parseFunctionExpr,
+    );
+
+    try expectFail("count\t(@.*)", JPQueryParser.parseFunctionExpr);
+}
+
+test "parse root only" {
+    try expectGood("$", model.JPQuery{ .segments = &.{} }, JPQueryParser.parse);
+}
+
+test "full query" {
+    var segs_ab = [_]model.SingularQuerySegment{ sqs("a"), sqs("b") };
+    const atom = model.Filter{ .atom = .{ .compare = .{ .gt = .{
+        .lhs = cmp(model.SingularQuery{ .current = &segs_ab }),
+        .rhs = cmp(lit(1)),
+    }}}};
+    var segments = [_]model.Segment{
+        .{ .selector = .{ .name = "a" } },
+        .{ .selector = .{ .name = "b" } },
+        .{ .selector = .{ .filter = atom } },
+    };
+    try expectGood(
+        "$.a.b[?@.a.b > 1]",
+        model.JPQuery{ .segments = &segments },
+        JPQueryParser.parse,
+    );
+}

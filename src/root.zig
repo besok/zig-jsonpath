@@ -3,7 +3,7 @@ const model = @import("model.zig");
 pub const jsp = @import("parser.zig");
 const query = @import("query.zig");
 
-pub fn jsonpath_from_string(
+pub fn jsonpath_str(
     source: []const u8,
     path: []const u8,
     allocator: std.mem.Allocator,
@@ -24,6 +24,6 @@ test "smoke" {
     const allocator = std.testing.allocator;
     const source = "{\"foo\": [1, 2, 3]}";
     const path = "$.foo[*]";
-    const result = try jsonpath_from_string(source, path, allocator);
+    const result = try jsonpath_str(source, path, allocator);
     try std.testing.expectEqual(0, result.results.len);
 }

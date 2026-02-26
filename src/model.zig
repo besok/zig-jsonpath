@@ -151,6 +151,18 @@ pub const Filter = union(enum) {
     }
 };
 
+pub fn filterCmp(c: Comparison) Filter {
+    return .{ .atom = .{ .compare = c } };
+}
+
+pub fn filterOr(filters: []Filter) Filter {
+    return .{ .ors = filters };
+}
+
+pub fn filterAnd(filters: []Filter) Filter {
+    return .{ .ands = filters };
+}
+
 pub const FilterAtom = union(enum) {
     filter: struct { expr: *Filter, not: bool },
     test_expr: struct { expr: *Test, not: bool },
@@ -357,6 +369,25 @@ pub const Comparison = union(enum) {
     }
 };
 
+pub fn eq(lhs: Comparable, rhs: Comparable) Comparison {
+    return .{ .eq = .{ .lhs = lhs, .rhs = rhs } };
+}
+pub fn ne(lhs: Comparable, rhs: Comparable) Comparison {
+    return .{ .ne = .{ .lhs = lhs, .rhs = rhs } };
+}
+pub fn gt(lhs: Comparable, rhs: Comparable) Comparison {
+    return .{ .gt = .{ .lhs = lhs, .rhs = rhs } };
+}
+pub fn lt(lhs: Comparable, rhs: Comparable) Comparison {
+    return .{ .lt = .{ .lhs = lhs, .rhs = rhs } };
+}
+pub fn gte(lhs: Comparable, rhs: Comparable) Comparison {
+    return .{ .gte = .{ .lhs = lhs, .rhs = rhs } };
+}
+pub fn lte(lhs: Comparable, rhs: Comparable) Comparison {
+    return .{ .lte = .{ .lhs = lhs, .rhs = rhs } };
+}
+
 pub const Comparable = union(enum) {
     lit: Literal,
     function: TestFunction,
@@ -378,6 +409,13 @@ pub const Comparable = union(enum) {
         };
     }
 };
+pub fn cmp(value: anytype) Comparable {
+    const T = @TypeOf(value);
+    if (T == Literal)        return .{ .lit = value };
+    if (T == SingularQuery)  return .{ .query = value };
+    if (T == TestFunction)   return .{ .function = value };
+    @compileError("Unsupported type for comparable(): " ++ @typeName(T));
+}
 
 pub const SingularQuery = union(enum) {
     current: []SingularQuerySegment,
