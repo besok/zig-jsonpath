@@ -42,7 +42,7 @@ pub fn main() !void {
                     successfull_cases += 1;
                 }
             } else {
-                const v = jsonpath.jsonpath_from_string(case.name, case.name, allocator);
+                const v = jsonpath.text_query(case.name, case.name, allocator);
                 if (v) |value| {
                     const results = value.results;
                     if (case.result)|r|{
