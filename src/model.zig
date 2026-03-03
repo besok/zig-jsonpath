@@ -1,4 +1,5 @@
 const std = @import("std");
+const q = @import("query.zig");
 
 pub const JPQuery = struct {
     segments: []Segment,
@@ -13,6 +14,14 @@ pub const JPQuery = struct {
             if (!a.eql(b)) return false;
         }
         return true;
+    }
+    pub fn query(self: *JPQuery, iteration: q.JsonPathIter) !q.JsonPathIter {
+        var iter = iteration;
+        try iter.append(iter.root, "$");
+        for (self.segments) |seg| {
+            iter = try seg.query(iter);
+        }
+        return iter;
     }
 };
 
@@ -37,9 +46,9 @@ pub const Segment = union(enum) {
     pub fn eql(self: Segment, other: Segment) bool {
         if (std.meta.activeTag(self) != std.meta.activeTag(other)) return false;
         return switch (self) {
-            .selector   => |v| v.eql(other.selector),
+            .selector => |v| v.eql(other.selector),
             .descendant => |v| v.eql(other.descendant.*),
-            .selectors  => |vs| blk: {
+            .selectors => |vs| blk: {
                 if (vs.len != other.selectors.len) break :blk false;
                 for (vs, other.selectors) |a, b| {
                     if (!a.eql(b)) break :blk false;
@@ -47,6 +56,10 @@ pub const Segment = union(enum) {
                 break :blk true;
             },
         };
+    }
+    pub fn query(self: Segment, iteration: q.JsonPathIter) !q.JsonPathIter {
+        _ = self;
+        return iteration;
     }
 };
 
@@ -67,11 +80,11 @@ pub const Selector = union(enum) {
     pub fn eql(self: Selector, other: Selector) bool {
         if (std.meta.activeTag(self) != std.meta.activeTag(other)) return false;
         return switch (self) {
-            .wildcard  => true,
-            .name      => |v| std.mem.eql(u8, v, other.name),
-            .index     => |v| v == other.index,
-            .slice     => |v| v.eql(other.slice),
-            .filter    => |v| v.eql(other.filter),
+            .wildcard => true,
+            .name => |v| std.mem.eql(u8, v, other.name),
+            .index => |v| v == other.index,
+            .slice => |v| v.eql(other.slice),
+            .filter => |v| v.eql(other.filter),
         };
     }
 };
@@ -85,12 +98,12 @@ pub const Selector = union(enum) {
 ///   sel(myFilter)        → .filter(myFilter)   (model.Filter value)
 pub fn sel(value: anytype) Selector {
     const T = @TypeOf(value);
-    if (T == void)         return .wildcard;
+    if (T == void) return .wildcard;
     if (T == Filter) return .{ .filter = value };
-    if (T == Slice)  return .{ .slice = value };
+    if (T == Slice) return .{ .slice = value };
     return switch (@typeInfo(T)) {
         .int, .comptime_int => .{ .index = @as(i64, @intCast(value)) },
-        .pointer, .array    => .{ .name = value },
+        .pointer, .array => .{ .name = value },
         else => @compileError("Unsupported type for sel()"),
     };
 }
@@ -102,10 +115,9 @@ pub const Slice = struct {
 
     pub fn eql(self: Slice, other: Slice) bool {
         return self.start == other.start and
-            self.end   == other.end   and
-            self.step  == other.step;
+            self.end == other.end and
+            self.step == other.step;
     }
-
 };
 pub fn slice(start: ?i64, end: ?i64, step: ?i64) Slice {
     return .{ .start = start, .end = end, .step = step };
@@ -133,7 +145,7 @@ pub const Filter = union(enum) {
         if (std.meta.activeTag(self) != std.meta.activeTag(other)) return false;
         return switch (self) {
             .atom => |v| v.eql(other.atom),
-            .ors  => |vs| blk: {
+            .ors => |vs| blk: {
                 if (vs.len != other.ors.len) break :blk false;
                 for (vs, other.ors) |a, b| {
                     if (!a.eql(b)) break :blk false;
@@ -184,9 +196,9 @@ pub const FilterAtom = union(enum) {
     pub fn eql(self: FilterAtom, other: FilterAtom) bool {
         if (std.meta.activeTag(self) != std.meta.activeTag(other)) return false;
         return switch (self) {
-            .filter    => |v| v.not == other.filter.not and v.expr.eql(other.filter.expr.*),
+            .filter => |v| v.not == other.filter.not and v.expr.eql(other.filter.expr.*),
             .test_expr => |v| v.not == other.test_expr.not and v.expr.eql(other.test_expr.expr.*),
-            .compare   => |v| v.eql(other.compare),
+            .compare => |v| v.eql(other.compare),
         };
     }
 };
@@ -198,7 +210,7 @@ pub const Test = union(enum) {
 
     pub fn deinit(self: *Test, allocator: std.mem.Allocator) void {
         switch (self.*) {
-            .abs_query => |*q| q.deinit(allocator),
+            .abs_query => |*query| query.deinit(allocator),
             .rel_query => |ss| {
                 for (ss) |*s| s.deinit(allocator);
                 allocator.free(ss);
@@ -210,7 +222,7 @@ pub const Test = union(enum) {
         if (std.meta.activeTag(self) != std.meta.activeTag(other)) return false;
         return switch (self) {
             .abs_query => |v| v.eql(other.abs_query),
-            .function  => |v| v.eql(other.function),
+            .function => |v| v.eql(other.function),
             .rel_query => |vs| blk: {
                 if (vs.len != other.rel_query.len) break :blk false;
                 for (vs, other.rel_query) |a, b| {
@@ -254,10 +266,10 @@ pub const TestFunction = union(enum) {
         if (std.meta.activeTag(self) != std.meta.activeTag(other)) return false;
         return switch (self) {
             .length => |v| v.arg.eql(other.length.arg),
-            .value  => |v| v.arg.eql(other.value.arg),
-            .count  => |v| v.arg.eql(other.count.arg),
+            .value => |v| v.arg.eql(other.value.arg),
+            .count => |v| v.arg.eql(other.count.arg),
             .search => |v| v.lhs.eql(other.search.lhs) and v.rhs.eql(other.search.rhs),
-            .match  => |v| v.lhs.eql(other.match.lhs)  and v.rhs.eql(other.match.rhs),
+            .match => |v| v.lhs.eql(other.match.lhs) and v.rhs.eql(other.match.rhs),
             .custom => |v| blk: {
                 if (!std.mem.eql(u8, v.name, other.custom.name)) break :blk false;
                 if (v.args.len != other.custom.args.len) break :blk false;
@@ -291,9 +303,9 @@ pub const FnArg = union(enum) {
     pub fn eql(self: FnArg, other: FnArg) bool {
         if (std.meta.activeTag(self) != std.meta.activeTag(other)) return false;
         return switch (self) {
-            .lit       => |v| v.eql(other.lit),
-            .test_arg  => |v| v.eql(other.test_arg.*),
-            .filter    => |v| v.eql(other.filter.*),
+            .lit => |v| v.eql(other.lit),
+            .test_arg => |v| v.eql(other.test_arg.*),
+            .filter => |v| v.eql(other.filter.*),
         };
     }
 };
@@ -397,23 +409,23 @@ pub const Comparable = union(enum) {
         switch (self.*) {
             .lit => |*l| l.deinit(allocator),
             .function => |*f| f.deinit(allocator),
-            .query => |*q| q.deinit(allocator),
+            .query => |*query| query.deinit(allocator),
         }
     }
     pub fn eql(self: Comparable, other: Comparable) bool {
         if (std.meta.activeTag(self) != std.meta.activeTag(other)) return false;
         return switch (self) {
-            .lit      => |v| v.eql(other.lit),
+            .lit => |v| v.eql(other.lit),
             .function => |v| v.eql(other.function),
-            .query    => |v| v.eql(other.query),
+            .query => |v| v.eql(other.query),
         };
     }
 };
 pub fn cmp(value: anytype) Comparable {
     const T = @TypeOf(value);
-    if (T == Literal)        return .{ .lit = value };
-    if (T == SingularQuery)  return .{ .query = value };
-    if (T == TestFunction)   return .{ .function = value };
+    if (T == Literal) return .{ .lit = value };
+    if (T == SingularQuery) return .{ .query = value };
+    if (T == TestFunction) return .{ .function = value };
     @compileError("Unsupported type for comparable(): " ++ @typeName(T));
 }
 
@@ -431,8 +443,12 @@ pub const SingularQuery = union(enum) {
     }
     pub fn eql(self: SingularQuery, other: SingularQuery) bool {
         if (std.meta.activeTag(self) != std.meta.activeTag(other)) return false;
-        const self_segs  = switch (self)  { inline else => |v| v };
-        const other_segs = switch (other) { inline else => |v| v };
+        const self_segs = switch (self) {
+            inline else => |v| v,
+        };
+        const other_segs = switch (other) {
+            inline else => |v| v,
+        };
         if (self_segs.len != other_segs.len) return false;
         for (self_segs, other_segs) |a, b| {
             if (!a.eql(b)) return false;
@@ -454,7 +470,7 @@ pub const SingularQuerySegment = union(enum) {
     pub fn eql(self: SingularQuerySegment, other: SingularQuerySegment) bool {
         if (std.meta.activeTag(self) != std.meta.activeTag(other)) return false;
         return switch (self) {
-            .name  => |v| std.mem.eql(u8, v, other.name),
+            .name => |v| std.mem.eql(u8, v, other.name),
             .index => |v| v == other.index,
         };
     }
@@ -467,7 +483,7 @@ pub const SingularQuerySegment = union(enum) {
 pub fn sqs(value: anytype) SingularQuerySegment {
     const T = @TypeOf(value);
     return switch (@typeInfo(T)) {
-        .pointer, .array    => .{ .name = value },
+        .pointer, .array => .{ .name = value },
         .int, .comptime_int => .{ .index = @as(i64, @intCast(value)) },
         else => @compileError("Unsupported type for sqs(): " ++ @typeName(T)),
     };

@@ -46,8 +46,14 @@ pub const JsonPathIter = struct {
         };
     }
 
+    pub fn getRoot(self: *JsonPathIter)  *std.json.Value {
+        return self.root;
+    }
+
     pub fn append(self: *JsonPathIter, value: *std.json.Value, path: []const u8) !void {
-        try self.cursors.append(self.allocator, .{ .value = value, .path = path });
+        const duped = try self.allocator.dupe(u8, path);
+        errdefer self.allocator.free(duped);
+        try self.cursors.append(self.allocator, .{ .json = value, .path = duped });
     }
 
     pub fn deinit(self: *JsonPathIter) void {
@@ -63,6 +69,23 @@ pub const JsonPathIter = struct {
             .results = results,
             .allocator = self.allocator,
         };
+    }
+    pub fn eql(self: JsonPathIter, other: JsonPathIter) bool {
+        if (self.cursors.items.len != other.cursors.items.len) return false;
+        for (self.cursors.items, other.cursors.items) |a, b| {
+            if (a.value != b.value) return false;
+            if (!std.mem.eql(u8, a.path, b.path)) return false;
+        }
+        return true;
+    }
+    pub fn print(self: *JsonPathIter) void {
+        std.debug.print("JsonPathIter({d} cursors):\n", .{self.cursors.items.len});
+        for (self.cursors.items) |c| {
+            std.debug.print("  path: {s}\n  value: {f}\n", .{
+                c.path,
+                std.json.fmt(c.json.*, .{ .whitespace = .indent_2 }),
+            });
+        }
     }
 };
 
