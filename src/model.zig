@@ -15,13 +15,12 @@ pub const JPQuery = struct {
         }
         return true;
     }
-    pub fn query(self: *JPQuery, iteration: q.JsonPathIter) !q.JsonPathIter {
+    pub fn query(self: *JPQuery, iteration: *q.JsonPathIter) !void {
         var iter = iteration;
         try iter.append(iter.root, "$");
         for (self.segments) |seg| {
-            iter = try seg.query(iter);
+            try seg.query(iter);
         }
-        return iter;
     }
 };
 
@@ -57,9 +56,12 @@ pub const Segment = union(enum) {
             },
         };
     }
-    pub fn query(self: Segment, iteration: q.JsonPathIter) !q.JsonPathIter {
-        _ = self;
-        return iteration;
+    pub fn query(self: Segment, iteration: *q.JsonPathIter) !void {
+        switch (self) {
+            .selector => |s| try s.query(iteration),
+            .selectors => |_| {},
+            .descendant => |_| {},
+        }
     }
 };
 
@@ -87,7 +89,43 @@ pub const Selector = union(enum) {
             .filter => |v| v.eql(other.filter),
         };
     }
+
+    pub fn query(self: Selector, iteration: *q.JsonPathIter) !void {
+        switch (self) {
+            .wildcard => {},
+            .name => |n| {
+                try queryName(n, iteration);
+            },
+            .index => |_| {},
+            .slice => |_| {},
+            .filter => |_| {},
+        }
+    }
 };
+
+fn queryName(name: []const u8, iteration: *q.JsonPathIter) !void {
+    var i: usize = 0;
+    while (i < iteration.cursors.items.len) {
+        const cursor = iteration.cursors.items[i];
+        switch (cursor.json.*) {
+            .object => |obj| {
+                if (obj.getPtr(name)) |val| {
+                    const new_path = try std.fmt.allocPrint(
+                        iteration.allocator,
+                        "{s}['{s}']",
+                        .{ cursor.path, name },
+                    );
+                    iteration.allocator.free(cursor.path);
+                    iteration.cursors.items[i] = .{ .json = val, .path = new_path };
+                    i += 1;
+                } else {
+                    iteration.remove(i);
+                }
+            },
+            else => iteration.remove(i),
+        }
+    }
+}
 
 /// Creates a Selector from a value. Usage:
 ///

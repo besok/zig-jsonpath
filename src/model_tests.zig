@@ -29,7 +29,7 @@ pub const TestIter = struct {
     pub fn eql(self: TestIter, actual: *Iter) bool {
         if (self.cursors.len != actual.cursors.items.len) return false;
         for (self.cursors, actual.cursors.items) |a, b| {
-            if (a.json != b.json) return false;
+            if (!jsonEql(a.json.*, b.json.*)) return false;
             if (!std.mem.eql(u8, a.path, b.path)) return false;
         }
         return true;
@@ -58,33 +58,89 @@ pub const TestIter = struct {
         }
     }
 };
-
-
+fn jsonEql(a: std.json.Value, b: std.json.Value) bool {
+    if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
+    return switch (a) {
+        .null => true,
+        .bool => |v| v == b.bool,
+        .integer => |v| v == b.integer,
+        .float => |v| v == b.float,
+        .string => |v| std.mem.eql(u8, v, b.string),
+        .array => |v| blk: {
+            if (v.items.len != b.array.items.len) break :blk false;
+            for (v.items, b.array.items) |x, y| {
+                if (!jsonEql(x, y)) break :blk false;
+            }
+            break :blk true;
+        },
+        .object => |v| blk: {
+            if (v.count() != b.object.count()) break :blk false;
+            var it = v.iterator();
+            while (it.next()) |entry| {
+                const bval = b.object.get(entry.key_ptr.*) orelse break :blk false;
+                if (!jsonEql(entry.value_ptr.*, bval)) break :blk false;
+            }
+            break :blk true;
+        },
+        .number_string => |v| std.mem.eql(u8, v, b.number_string),
+    };
+}
 
 pub fn ptr(value: *std.json.Value, path: []const u8) query.JsonPointer {
     return .{ .json = value, .path = path };
 }
-
-
 
 pub fn init_query(query_str: []const u8) !model.JPQuery {
     var p = parser.JPQueryParser.init(query_str, std.testing.allocator);
     return try p.parse();
 }
 
-test "parse root only" {
+test "query root only" {
     var tjson = try TestJson.init("{}");
     defer tjson.deinit(std.testing.allocator);
-
 
     var js_query = try init_query("$");
     defer js_query.deinit(std.testing.allocator);
 
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
 
-    var actual = try js_query.query(Iter.init(tjson.value(), std.testing.allocator));
-    defer actual.deinit();
+    var expected = TestIter.init(&.{ptr(tjson.value(), "$")});
+    try expected.shouldEql(&iter);
+}
 
-    var expected =  TestIter.init(&.{ptr(tjson.value(), "$")});
-    try expected.shouldEql(&actual);
+test "query name" {
+    var tjson = try TestJson.init("{\"a\":\"b\"}");
+    defer tjson.deinit(std.testing.allocator);
 
+    var js_query = try init_query("$.a");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var expected_json = try TestJson.init("\"b\"");
+    defer expected_json.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{ptr(expected_json.value(), "$['a']")});
+    try expected.shouldEql(&iter);
+}
+test "query name 2" {
+    var tjson = try TestJson.init("{\"a\":{\"b\":\"c\"}}");
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$.a.b");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var expected_json = try TestJson.init("\"c\"");
+    defer expected_json.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{ptr(expected_json.value(), "$['a']['b']")});
+    try expected.shouldEql(&iter);
 }

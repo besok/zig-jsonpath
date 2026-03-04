@@ -46,7 +46,7 @@ pub const JsonPathIter = struct {
         };
     }
 
-    pub fn getRoot(self: *JsonPathIter)  *std.json.Value {
+    pub fn getRoot(self: *JsonPathIter) *std.json.Value {
         return self.root;
     }
 
@@ -87,12 +87,16 @@ pub const JsonPathIter = struct {
             });
         }
     }
+    pub fn remove(self: *JsonPathIter, i: usize) void {
+        var r = self.cursors.orderedRemove(i);
+        r.deinit(self.allocator);
+    }
 };
 
-pub fn query(node: anytype, iteration: JsonPathIter) !JsonPathIter {
+pub fn query(node: anytype, iteration: *JsonPathIter) !void {
     const T = @TypeOf(node);
     if (!@hasDecl(T, "query")) {
         @compileError(@typeName(T) ++ " does not implement query");
     }
-    return node.query(iteration);
+    try node.query(iteration);
 }
