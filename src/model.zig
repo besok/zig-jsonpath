@@ -92,11 +92,15 @@ pub const Selector = union(enum) {
 
     pub fn query(self: Selector, iteration: *q.JsonPathIter) !void {
         switch (self) {
-            .wildcard => {},
+            .wildcard => {
+                try queryWildcard(iteration);
+            },
             .name => |n| {
                 try queryName(n, iteration);
             },
-            .index => |_| {},
+            .index => |i| {
+                try queryIndex(i, iteration);
+            },
             .slice => |_| {},
             .filter => |_| {},
         }
@@ -125,6 +129,80 @@ fn queryName(name: []const u8, iteration: *q.JsonPathIter) !void {
             else => iteration.remove(i),
         }
     }
+}
+fn queryIndex(index: i64, iteration: *q.JsonPathIter) !void {
+    var i: usize = 0;
+    while (i < iteration.cursors.items.len) {
+        const cursor = iteration.cursors.items[i];
+        switch (cursor.json.*) {
+            .array => |arr| {
+                const actual_index: usize = if (index >= 0) @intCast(index) else blk: {
+                    const abs: usize = @intCast(-index);
+                    if (abs > arr.items.len) {
+                        iteration.remove(i);
+                        continue;
+                    }
+                    break :blk arr.items.len - abs;
+                };
+
+                if (actual_index < arr.items.len) {
+                    const new_path = try std.fmt.allocPrint(
+                        iteration.allocator,
+                        "{s}[{d}]",
+                        .{ cursor.path, index },
+                    );
+                    iteration.allocator.free(cursor.path);
+                    iteration.cursors.items[i] = .{ .json = &arr.items[actual_index], .path = new_path };
+                    i += 1;
+                } else {
+                    iteration.remove(i);
+                }
+            },
+            else => {
+                iteration.remove(i);
+            },
+        }
+    }
+}
+fn queryWildcard(iteration: *q.JsonPathIter) !void {
+    var next_pointers = std.ArrayListUnmanaged(q.JsonPointer){};
+    errdefer {
+        for (next_pointers.items) |*p| p.deinit(iteration.allocator);
+        next_pointers.deinit(iteration.allocator);
+    }
+
+    for (iteration.cursors.items) |cursor| {
+        switch (cursor.json.*) {
+            .array => |arr| {
+                for (arr.items, 0..) |*elem, idx| {
+                    const new_path = try std.fmt.allocPrint(
+                        iteration.allocator,
+                        "{s}[{d}]",
+                        .{ cursor.path, idx },
+                    );
+                    errdefer iteration.allocator.free(new_path);
+                    try next_pointers.append(iteration.allocator, .{ .json = elem, .path = new_path });
+                }
+            },
+            .object => |obj| {
+                var it = obj.iterator();
+                while (it.next()) |entry| {
+                    const new_path = try std.fmt.allocPrint(
+                        iteration.allocator,
+                        "{s}['{s}']",
+                        .{ cursor.path, entry.key_ptr.* },
+                    );
+                    errdefer iteration.allocator.free(new_path);
+                    try next_pointers.append(iteration.allocator, .{ .json = entry.value_ptr, .path = new_path });
+                }
+            },
+            else => {},
+        }
+    }
+
+    for (iteration.cursors.items) |*p| p.deinit(iteration.allocator);
+    iteration.cursors.deinit(iteration.allocator);
+    iteration.cursors = next_pointers;
 }
 
 /// Creates a Selector from a value. Usage:
