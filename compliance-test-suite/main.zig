@@ -34,7 +34,7 @@ pub fn main() !void {
         } else {
 
             if (case.invalid_selector) {
-                var parser = jsonpath.jsp.JPQueryParser.init(case.selector);
+                var parser = jsonpath.jsp.JPQueryParser.init(case.selector, allocator);
                  const jspath = parser.parse();
                 if (jspath) |_| {
                     try failed_cases.append(case.name);
@@ -45,9 +45,14 @@ pub fn main() !void {
                 const v = jsonpath.text_query(case.name, case.name, allocator);
                 if (v) |value| {
                     const results = value.results;
+                    const values = try allocator.alloc(*std.json.Value, results.len);
+                    for (results, 0..) |jp, i| {
+                        values[i] = jp.json;
+                    }
                     if (case.result)|r|{
                         const items = r.array.items;
-                        if (compareValueSlices(items, results)) {
+
+                        if (compareValueSlices(items, values)) {
                             successfull_cases += 1;
                         } else {
                             try failed_cases.append(case.name);
@@ -58,7 +63,7 @@ pub fn main() !void {
                         const items = rs.array.items;
                         for (items) |item| {
                             const elems = item.array.items;
-                            if (compareValueSlices(elems, results)){
+                            if (compareValueSlices(elems, values)){
                                 successfull_cases += 1;
                                 checked = true;
                                 break;

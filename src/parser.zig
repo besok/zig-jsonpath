@@ -120,6 +120,7 @@ pub const JPQueryParser = struct {
         try self.move(1); // consume opening quote
 
         var buf: std.ArrayList(u8) = .empty;
+        errdefer buf.deinit(self.allocator);
 
         while (self.peek()) |ch| {
             if (ch == quote) {
@@ -294,6 +295,7 @@ pub const JPQueryParser = struct {
 
         if (ch == '"' or ch == '\'') {
             const s = try self.parseString();
+            errdefer self.allocator.free(s);
             return .{ .str = s };
         }
 
@@ -491,6 +493,7 @@ pub const JPQueryParser = struct {
         // single selector -> .selector, multiple -> .selectors
         if (selectors.items.len == 1) {
             const sel = selectors.items[0];
+            selectors.items.len = 0;
             selectors.deinit(self.allocator);
             return .{ .selector = sel };
         }
@@ -515,6 +518,7 @@ pub const JPQueryParser = struct {
 
         if (ch == '"' or ch == '\'') {
             const s = try self.parseString();
+            errdefer self.allocator.free(s);
             return .{ .name = s };
         }
 
@@ -839,6 +843,7 @@ pub const JPQueryParser = struct {
 
         if (ch == '"' or ch == '\'') {
             const name = try self.parseString();
+            errdefer self.allocator.free(name);
             try self.skipWhitespace();
             try self.expect(']', "Expected ']'");
             return .{ .name = name };

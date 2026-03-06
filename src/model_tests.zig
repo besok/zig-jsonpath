@@ -247,3 +247,111 @@ test "query wildcard object" {
     });
     try expected.shouldEql(&iter);
 }
+
+test "query slice normal" {
+    var tjson = try TestJson.init("[\"a\",\"b\",\"c\",\"d\",\"e\"]");
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[1:3]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp_b = try TestJson.init("\"b\"");
+    defer exp_b.deinit(std.testing.allocator);
+    var exp_c = try TestJson.init("\"c\"");
+    defer exp_c.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp_b.value(), "$[1]"),
+        ptr(exp_c.value(), "$[2]"),
+    });
+    try expected.shouldEql(&iter);
+}
+
+test "query slice empty array" {
+    var tjson = try TestJson.init("[]");
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[0:1]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var expected = TestIter.init(&.{});
+    try expected.shouldEql(&iter);
+}
+
+test "query slice not array" {
+    var tjson = try TestJson.init("{\"a\":1}");
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[0:1]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var expected = TestIter.init(&.{});
+    try expected.shouldEql(&iter);
+}
+
+test "query slice normalization" {
+    var tjson = try TestJson.init("[\"a\",\"b\",\"c\",\"d\",\"e\"]");
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[0:100]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp_a = try TestJson.init("\"a\"");
+    defer exp_a.deinit(std.testing.allocator);
+    var exp_b = try TestJson.init("\"b\"");
+    defer exp_b.deinit(std.testing.allocator);
+    var exp_c = try TestJson.init("\"c\"");
+    defer exp_c.deinit(std.testing.allocator);
+    var exp_d = try TestJson.init("\"d\"");
+    defer exp_d.deinit(std.testing.allocator);
+    var exp_e = try TestJson.init("\"e\"");
+    defer exp_e.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp_a.value(), "$[0]"),
+        ptr(exp_b.value(), "$[1]"),
+        ptr(exp_c.value(), "$[2]"),
+        ptr(exp_d.value(), "$[3]"),
+        ptr(exp_e.value(), "$[4]"),
+    });
+    try expected.shouldEql(&iter);
+}
+
+test "query slice negative" {
+    var tjson = try TestJson.init("[\"a\",\"b\",\"c\",\"d\",\"e\"]");
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[-2:]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp_d = try TestJson.init("\"d\"");
+    defer exp_d.deinit(std.testing.allocator);
+    var exp_e = try TestJson.init("\"e\"");
+    defer exp_e.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp_d.value(), "$[3]"),
+        ptr(exp_e.value(), "$[4]"),
+    });
+    try expected.shouldEql(&iter);
+}

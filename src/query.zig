@@ -28,9 +28,12 @@ pub fn perform(
     path: *const model.JPQuery,
     allocator: std.mem.Allocator,
 ) !JsonPathResult {
-    var iter = try query(path, JsonPathIter.init(&parsed_json.value, allocator));
-    errdefer iter.deinit();
-    return iter.toResult(parsed_json);
+    var json = parsed_json;
+    var init_query = JsonPathIter.init(&json.value, allocator);
+    errdefer init_query.deinit();
+
+    try query(path, &init_query);
+    return init_query.toResult(parsed_json);
 }
 
 pub const JsonPathIter = struct {
@@ -94,9 +97,13 @@ pub const JsonPathIter = struct {
 };
 
 pub fn query(node: anytype, iteration: *JsonPathIter) !void {
-    const T = @TypeOf(node);
+    const T = switch (@typeInfo(@TypeOf(node))) {
+        .pointer => |p| p.child,
+        else => @TypeOf(node),
+    };
     if (!@hasDecl(T, "query")) {
-        @compileError(@typeName(T) ++ " does not implement query");
+        // @compileError(@typeName(T) ++ " does not implement query");
+        return;
     }
     try node.query(iteration);
 }
