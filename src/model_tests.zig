@@ -435,7 +435,6 @@ test "query descendant wildcard" {
     try js_query.query(&iter);
     defer iter.deinit();
 
-    // $..*  on an object returns all values at all levels
     var exp_a = try TestJson.init("[1,2]");
     defer exp_a.deinit(std.testing.allocator);
     var exp_b = try TestJson.init("[3,4]");
