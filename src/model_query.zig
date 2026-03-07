@@ -161,3 +161,73 @@ pub fn queryWildcard(iteration: *q.JsonPathIter) !void {
     iteration.cursors.deinit(iteration.allocator);
     iteration.cursors = next_pointers;
 }
+
+pub fn queryDescendant(iteration: *q.JsonPathIter) !void {
+    var next = std.ArrayListUnmanaged(q.JsonPointer){};
+    errdefer {
+        for (next.items) |*p| p.deinit(iteration.allocator);
+        next.deinit(iteration.allocator);
+    }
+
+    for (iteration.cursors.items) |cursor| {
+        try collectDescendants(iteration.allocator, cursor.json, cursor.path, &next);
+    }
+
+    for (iteration.cursors.items) |*p| p.deinit(iteration.allocator);
+    iteration.cursors.deinit(iteration.allocator);
+    iteration.cursors = next;
+    try deduplicateByPath(iteration);
+}
+
+fn collectDescendants(
+    allocator: std.mem.Allocator,
+    value: *std.json.Value,
+    path: []const u8,
+    out: *std.ArrayListUnmanaged(q.JsonPointer),
+) !void {
+
+    try out.append(allocator, .{ .json = value, .path = try allocator.dupe(u8, path) });
+
+    switch (value.*) {
+        .array => |arr| {
+            for (arr.items, 0..) |*elem, i| {
+                const child_path = try std.fmt.allocPrint(allocator, "{s}[{d}]", .{ path, i });
+                errdefer allocator.free(child_path);
+                try collectDescendants(allocator, elem, child_path, out);
+                allocator.free(child_path);
+            }
+        },
+        .object => |obj| {
+            var it = obj.iterator();
+            while (it.next()) |entry| {
+                const child_path = try std.fmt.allocPrint(allocator, "{s}['{s}']", .{ path, entry.key_ptr.* });
+                errdefer allocator.free(child_path);
+                try collectDescendants(allocator, entry.value_ptr, child_path, out);
+                allocator.free(child_path);
+            }
+        },
+        else => {},
+    }
+}
+fn deduplicateByPath(iteration: *q.JsonPathIter) !void {
+    var seen = std.StringHashMap(void).init(iteration.allocator);
+    defer seen.deinit();
+
+    var deduped = std.ArrayListUnmanaged(q.JsonPointer){};
+    errdefer {
+        for (deduped.items) |*p| p.deinit(iteration.allocator);
+        deduped.deinit(iteration.allocator);
+    }
+
+    for (iteration.cursors.items) |p| {
+        const result = try seen.getOrPut(p.path);
+        if (!result.found_existing) {
+            try deduped.append(iteration.allocator, p);
+        } else {
+            iteration.allocator.free(p.path);
+        }
+    }
+
+    iteration.cursors.deinit(iteration.allocator);
+    iteration.cursors = deduped;
+}

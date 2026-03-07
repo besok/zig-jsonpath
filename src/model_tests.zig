@@ -355,3 +355,132 @@ test "query slice negative" {
     });
     try expected.shouldEql(&iter);
 }
+
+test "query descendant one level" {
+    var tjson = try TestJson.init("{\"a\":1,\"b\":2}");
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$..a");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp = try TestJson.init("1");
+    defer exp.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp.value(), "$['a']"),
+    });
+    try expected.shouldEql(&iter);
+}
+
+test "query descendant several levels" {
+    var tjson = try TestJson.init("{\"a\":{\"b\":{\"a\":42}}}");
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$..a");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp_outer = try TestJson.init("{\"b\":{\"a\":42}}");
+    defer exp_outer.deinit(std.testing.allocator);
+    var exp_inner = try TestJson.init("42");
+    defer exp_inner.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp_outer.value(), "$['a']"),
+        ptr(exp_inner.value(), "$['a']['b']['a']"),
+    });
+    try expected.shouldEql(&iter);
+}
+
+test "query descendant chained" {
+    var tjson = try TestJson.init(
+        \\{"a":{"b":1},"c":{"a":{"b":2}}}
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$..a..b");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp1 = try TestJson.init("1");
+    defer exp1.deinit(std.testing.allocator);
+    var exp2 = try TestJson.init("2");
+    defer exp2.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp1.value(), "$['a']['b']"),
+        ptr(exp2.value(), "$['c']['a']['b']"),
+    });
+    try expected.shouldEql(&iter);
+}
+
+test "query descendant wildcard" {
+    var tjson = try TestJson.init("{\"a\":[1,2],\"b\":[3,4]}");
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$..*");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    // $..*  on an object returns all values at all levels
+    var exp_a = try TestJson.init("[1,2]");
+    defer exp_a.deinit(std.testing.allocator);
+    var exp_b = try TestJson.init("[3,4]");
+    defer exp_b.deinit(std.testing.allocator);
+    var exp_1 = try TestJson.init("1");
+    defer exp_1.deinit(std.testing.allocator);
+    var exp_2 = try TestJson.init("2");
+    defer exp_2.deinit(std.testing.allocator);
+    var exp_3 = try TestJson.init("3");
+    defer exp_3.deinit(std.testing.allocator);
+    var exp_4 = try TestJson.init("4");
+    defer exp_4.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp_a.value(), "$['a']"),
+        ptr(exp_b.value(), "$['b']"),
+        ptr(exp_1.value(), "$['a'][0]"),
+        ptr(exp_2.value(), "$['a'][1]"),
+        ptr(exp_3.value(), "$['b'][0]"),
+        ptr(exp_4.value(), "$['b'][1]"),
+    });
+    try expected.shouldEql(&iter);
+}
+
+test "query descendant x then descendant y" {
+    var tjson = try TestJson.init(
+        \\{"a":{"b":{"a":{"b":99}}}}
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$..a..b");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp1 = try TestJson.init("{\"a\":{\"b\":99}}");
+    defer exp1.deinit(std.testing.allocator);
+    var exp2 = try TestJson.init("99");
+    defer exp2.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp1.value(), "$['a']['b']"),
+        ptr(exp2.value(), "$['a']['b']['a']['b']"),
+    });
+    try expected.shouldEql(&iter);
+}

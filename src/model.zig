@@ -60,7 +60,10 @@ pub const Segment = union(enum) {
         switch (self) {
             .selector => |s| try s.query(iteration),
             .selectors => |_| {},
-            .descendant => |_| {},
+            .descendant => |s| {
+                try inner.queryDescendant(iteration);
+                try s.query(iteration);
+            },
         }
     }
 };
