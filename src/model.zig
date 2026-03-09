@@ -1,5 +1,6 @@
 const std = @import("std");
 const q = @import("query.zig");
+const Iter = q.JsonPathIter;
 const inner = @import("model_query.zig");
 pub const JPQuery = struct {
     segments: []Segment,
@@ -15,7 +16,7 @@ pub const JPQuery = struct {
         }
         return true;
     }
-    pub fn query(self: *const JPQuery, iteration: *q.JsonPathIter) !void {
+    pub fn query(self: *const JPQuery, iteration: *Iter) !void {
         var iter = iteration;
         try iter.append(iter.root, "$");
         for (self.segments) |seg| {
@@ -56,10 +57,38 @@ pub const Segment = union(enum) {
             },
         };
     }
-    pub fn query(self: Segment, iteration: *q.JsonPathIter) !void {
+    pub fn query(self: Segment, iteration: *Iter) !void {
         switch (self) {
             .selector => |s| try s.query(iteration),
-            .selectors => |_| {},
+            .selectors => |ss| {
+                var next = std.ArrayListUnmanaged(q.JsonPointer){};
+                errdefer {
+                    for (next.items) |*p| p.deinit(iteration.allocator);
+                    next.deinit(iteration.allocator);
+                }
+
+                for (ss) |s| {
+                    var branch = Iter.init(iteration.root, iteration.allocator);
+                    defer branch.deinit();
+                    for (iteration.cursors.items) |p| {
+                        try branch.cursors.append(iteration.allocator, .{
+                            .json = p.json,
+                            .path = try iteration.allocator.dupe(u8, p.path),
+                        });
+                    }
+                    try s.query(&branch);
+                    for (branch.cursors.items) |p| {
+                        try next.append(iteration.allocator, .{
+                            .json = p.json,
+                            .path = try iteration.allocator.dupe(u8, p.path),
+                        });
+                    }
+                }
+
+                for (iteration.cursors.items) |*p| p.deinit(iteration.allocator);
+                iteration.cursors.deinit(iteration.allocator);
+                iteration.cursors = next;
+            },
             .descendant => |s| {
                 try inner.queryDescendant(iteration);
                 try s.query(iteration);
@@ -93,7 +122,7 @@ pub const Selector = union(enum) {
         };
     }
 
-    pub fn query(self: Selector, iteration: *q.JsonPathIter) !void {
+    pub fn query(self: Selector, iteration: *Iter) !void {
         switch (self) {
             .wildcard => {
                 try inner.queryWildcard(iteration);
@@ -107,7 +136,9 @@ pub const Selector = union(enum) {
             .slice => |slce| {
                 try inner.querySlice(slce, iteration);
             },
-            .filter => |_| {},
+            .filter => |f| {
+                try f.query(iteration);
+            },
         }
     }
 };
@@ -184,6 +215,16 @@ pub const Filter = union(enum) {
             },
         };
     }
+
+    pub fn query(self: Filter, iteration: *Iter) !void {
+        switch (self) {
+            .ors => |_|{},
+            .ands => |_| {},
+            .atom  => |a| {
+                try a.query(iteration);
+            },
+        }
+    }
 };
 
 pub fn filterCmp(c: Comparison) Filter {
@@ -224,6 +265,17 @@ pub const FilterAtom = union(enum) {
             .compare => |v| v.eql(other.compare),
         };
     }
+
+    pub fn query(self: FilterAtom, iteration: *Iter) !void {
+        switch (self) {
+            .filter => |_| {},
+            .test_expr => |_|{},
+            .compare => |c | {
+                try c.query(iteration);
+            }
+        }
+    }
+
 };
 
 pub const Test = union(enum) {
@@ -400,6 +452,16 @@ pub const Comparison = union(enum) {
                 const o = @field(other, @tagName(tag));
                 return v.lhs.eql(o.lhs) and v.rhs.eql(o.rhs);
             },
+        }
+    }
+    pub fn query(self: Comparison, _: *Iter) !void {
+        switch (self){
+            .eq => {},
+            .ne => {},
+            .gt => {},
+            .gte => {},
+            .lt => {},
+            .lte => {},
         }
     }
 };

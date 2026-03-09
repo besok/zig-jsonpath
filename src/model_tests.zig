@@ -483,3 +483,64 @@ test "query descendant x then descendant y" {
     });
     try expected.shouldEql(&iter);
 }
+
+test "query selectors multiple" {
+    var tjson = try TestJson.init("{\"a\":1,\"b\":2,\"c\":3}");
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$['a','b']");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp_a = try TestJson.init("1");
+    defer exp_a.deinit(std.testing.allocator);
+    var exp_b = try TestJson.init("2");
+    defer exp_b.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp_a.value(), "$['a']"),
+        ptr(exp_b.value(), "$['b']"),
+    });
+    try expected.shouldEql(&iter);
+}
+
+test "query selectors mixed name and index" {
+    var tjson = try TestJson.init("[\"a\",\"b\",\"c\"]");
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[0,2]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp_a = try TestJson.init("\"a\"");
+    defer exp_a.deinit(std.testing.allocator);
+    var exp_c = try TestJson.init("\"c\"");
+    defer exp_c.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp_a.value(), "$[0]"),
+        ptr(exp_c.value(), "$[2]"),
+    });
+    try expected.shouldEql(&iter);
+}
+
+test "query selectors no match" {
+    var tjson = try TestJson.init("{\"a\":1}");
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$['b','c']");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var expected = TestIter.init(&.{});
+    try expected.shouldEql(&iter);
+}
