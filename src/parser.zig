@@ -63,6 +63,10 @@ pub const JPQueryParser = struct {
     pub fn parse(self: *JPQueryParser) !model.JPQuery {
         try self.expect('$', "Expected '$' at start of JSONPath query");
         const segments = try self.parseSegments();
+        errdefer {
+            for (segments) |*s| @constCast(s).deinit(self.allocator);
+            self.allocator.free(segments);
+        }
         if (!self.isEnd()) return self.fail("Unexpected input after query");
         return .{ .segments = segments };
     }
@@ -295,7 +299,6 @@ pub const JPQueryParser = struct {
 
         if (ch == '"' or ch == '\'') {
             const s = try self.parseString();
-            errdefer self.allocator.free(s);
             return .{ .str = s };
         }
 
@@ -366,7 +369,6 @@ pub const JPQueryParser = struct {
     }
 
     fn parseTwoArgFn(self: *JPQueryParser, comptime tag: anytype) !model.TestFunction {
-
         try self.expect('(', "Expected '('");
         try self.skipWhitespace();
         var lhs = try self.parseFnArg();
@@ -418,8 +420,11 @@ pub const JPQueryParser = struct {
         try self.skipWhitespace();
         while (self.peek()) |ch| {
             if (ch != '.' and ch != '[') break;
-            const seg = try self.parseSegment();
-            try segments.append(self.allocator, seg);
+            {
+                var seg = try self.parseSegment();
+                errdefer seg.deinit(self.allocator);
+                try segments.append(self.allocator, seg);
+            }
             try self.skipWhitespace();
         }
 
@@ -429,7 +434,8 @@ pub const JPQueryParser = struct {
     fn parseSegment(self: *JPQueryParser) !model.Segment {
         if (self.restStartsWith("..")) {
             try self.move(2);
-            const inner = try self.parseDescendantInner();
+            var inner = try self.parseDescendantInner();
+            errdefer inner.deinit(self.allocator);
             const ptr = try self.allocator.create(model.Segment);
             errdefer self.allocator.destroy(ptr);
             ptr.* = inner;
@@ -477,14 +483,20 @@ pub const JPQueryParser = struct {
             selectors.deinit(self.allocator);
         }
 
-        const first = try self.parseSelector();
-        try selectors.append(self.allocator, first);
+        {
+            var first = try self.parseSelector();
+            errdefer first.deinit(self.allocator);
+            try selectors.append(self.allocator, first);
+        }
         try self.skipWhitespace();
 
         while (self.is(',')) {
             try self.skipWhitespace();
-            const sel = try self.parseSelector();
-            try selectors.append(self.allocator, sel);
+            {
+                var sel = try self.parseSelector();
+                errdefer sel.deinit(self.allocator);
+                try selectors.append(self.allocator, sel);
+            }
             try self.skipWhitespace();
         }
 
@@ -518,7 +530,6 @@ pub const JPQueryParser = struct {
 
         if (ch == '"' or ch == '\'') {
             const s = try self.parseString();
-            errdefer self.allocator.free(s);
             return .{ .name = s };
         }
 
@@ -605,20 +616,22 @@ pub const JPQueryParser = struct {
             items.deinit(self.allocator);
         }
 
-        const first = try self.parseLogicalAnd();
+        var first = try self.parseLogicalAnd();
+        errdefer first.deinit(self.allocator);
         try items.append(self.allocator, first);
 
         try self.skipWhitespace();
         while (self.restStartsWith("||")) {
             try self.move(2);
             try self.skipWhitespace();
-            const next = try self.parseLogicalAnd();
+            var next = try self.parseLogicalAnd();
+            errdefer next.deinit(self.allocator);
             try items.append(self.allocator, next);
             try self.skipWhitespace();
         }
 
         if (items.items.len == 1) {
-            const single = items.items[0];
+            const single = items.pop() orelse undefined;
             items.deinit(self.allocator);
             return single;
         }
@@ -633,20 +646,22 @@ pub const JPQueryParser = struct {
             items.deinit(self.allocator);
         }
 
-        const first = try self.parseAtom();
+        var first = try self.parseAtom();
+        errdefer first.deinit(self.allocator);
         try items.append(self.allocator, first);
 
         try self.skipWhitespace();
         while (self.restStartsWith("&&")) {
             try self.move(2);
             try self.skipWhitespace();
-            const next = try self.parseAtom();
+            var next = try self.parseAtom();
+            errdefer next.deinit(self.allocator);
             try items.append(self.allocator, next);
             try self.skipWhitespace();
         }
 
         if (items.items.len == 1) {
-            const single = items.items[0];
+            const single = items.pop() orelse undefined;
             items.deinit(self.allocator);
             return single;
         }

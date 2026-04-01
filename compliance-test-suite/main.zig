@@ -3,8 +3,12 @@ const jsonpath = @import("jsonpath");
 const suite = @import("suite.zig");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+    var gpa = std.heap.GeneralPurposeAllocator(.{
+        .stack_trace_frames = 30,
+    }){};
+    defer {
+        _ = gpa.detectLeaks();
+    }
     const allocator = gpa.allocator();
 
     const cases = try suite.getCases(allocator);
@@ -20,9 +24,9 @@ pub fn main() !void {
     for (filtered_cases.value) |case| {
         try string_set.put(case.name, case);
     }
-    var total:usize = 0;
-    var successfull_cases:usize = 0;
-    var skipped_cases:usize = 0;
+    var total: usize = 0;
+    var successfull_cases: usize = 0;
+    var skipped_cases: usize = 0;
     var failed_cases = std.array_list.Managed([]const u8).init(allocator);
     defer failed_cases.deinit();
 
@@ -32,11 +36,11 @@ pub fn main() !void {
             std.debug.print("Filter {f}\n", .{filter});
             skipped_cases += 1;
         } else {
-
             if (case.invalid_selector) {
                 var parser = jsonpath.jsp.JPQueryParser.init(case.selector, allocator);
-                 const jspath = parser.parse();
-                if (jspath) |_| {
+                const jspath = parser.parse();
+                if (jspath) |*q| {
+                    @constCast(q).deinit(allocator);
                     try failed_cases.append(case.name);
                 } else |_| {
                     successfull_cases += 1;
@@ -44,12 +48,15 @@ pub fn main() !void {
             } else {
                 const v = jsonpath.text_query(case.name, case.name, allocator);
                 if (v) |value| {
-                    const results = value.results;
+                    var res = value;
+                    defer res.deinit();
+                    const results = res.results;
                     const values = try allocator.alloc(*std.json.Value, results.len);
+                    defer allocator.free(values);
                     for (results, 0..) |jp, i| {
                         values[i] = jp.json;
                     }
-                    if (case.result)|r|{
+                    if (case.result) |r| {
                         const items = r.array.items;
 
                         if (compareValueSlices(items, values)) {
@@ -57,13 +64,12 @@ pub fn main() !void {
                         } else {
                             try failed_cases.append(case.name);
                         }
-                    }
-                    else if(case.results)|rs|{
+                    } else if (case.results) |rs| {
                         var checked = false;
                         const items = rs.array.items;
                         for (items) |item| {
                             const elems = item.array.items;
-                            if (compareValueSlices(elems, values)){
+                            if (compareValueSlices(elems, values)) {
                                 successfull_cases += 1;
                                 checked = true;
                                 break;
@@ -73,7 +79,7 @@ pub fn main() !void {
                             try failed_cases.append(case.name);
                         }
                     }
-                } else |_|{
+                } else |_| {
                     try failed_cases.append(case.name);
                 }
             }

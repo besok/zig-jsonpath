@@ -31,7 +31,7 @@ pub const Segment = union(enum) {
     selectors: []Selector,
 
     pub fn deinit(self: *Segment, allocator: std.mem.Allocator) void {
-        switch (self.*) {
+           switch (self.*) {
             .descendant => |s| {
                 s.deinit(allocator);
                 allocator.destroy(s);
@@ -71,17 +71,15 @@ pub const Segment = union(enum) {
                     var branch = Iter.init(iteration.root, iteration.allocator);
                     defer branch.deinit();
                     for (iteration.cursors.items) |p| {
-                        try branch.cursors.append(iteration.allocator, .{
-                            .json = p.json,
-                            .path = try iteration.allocator.dupe(u8, p.path),
-                        });
+                        const duped = try iteration.allocator.dupe(u8, p.path);
+                        errdefer iteration.allocator.free(duped);
+                        try branch.cursors.append(iteration.allocator, .{ .json = p.json, .path = duped });
                     }
                     try s.query(&branch);
                     for (branch.cursors.items) |p| {
-                        try next.append(iteration.allocator, .{
-                            .json = p.json,
-                            .path = try iteration.allocator.dupe(u8, p.path),
-                        });
+                        const duped = try iteration.allocator.dupe(u8, p.path);
+                        errdefer iteration.allocator.free(duped);
+                        try next.append(iteration.allocator, .{ .json = p.json, .path = duped });
                     }
                 }
 
@@ -218,9 +216,9 @@ pub const Filter = union(enum) {
 
     pub fn query(self: Filter, iteration: *Iter) !void {
         switch (self) {
-            .ors => |_|{},
+            .ors => |_| {},
             .ands => |_| {},
-            .atom  => |a| {
+            .atom => |a| {
                 try a.query(iteration);
             },
         }
@@ -269,13 +267,12 @@ pub const FilterAtom = union(enum) {
     pub fn query(self: FilterAtom, iteration: *Iter) !void {
         switch (self) {
             .filter => |_| {},
-            .test_expr => |_|{},
-            .compare => |c | {
+            .test_expr => |_| {},
+            .compare => |c| {
                 try c.query(iteration);
-            }
+            },
         }
     }
-
 };
 
 pub const Test = union(enum) {
@@ -455,7 +452,7 @@ pub const Comparison = union(enum) {
         }
     }
     pub fn query(self: Comparison, _: *Iter) !void {
-        switch (self){
+        switch (self) {
             .eq => {},
             .ne => {},
             .gt => {},

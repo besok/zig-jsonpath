@@ -14,9 +14,10 @@ pub fn text_query(
         source,
         .{},
     );
-    defer json.deinit();
+    errdefer json.deinit();
     var parser = jsp.JPQueryParser.init(path, allocator);
     var jp_path = try parser.parse();
+    errdefer jp_path.deinit(allocator);
     return try query.perform(json, &jp_path, allocator);
 }
 
