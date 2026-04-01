@@ -3,20 +3,15 @@ const jsonpath = @import("jsonpath");
 const suite = @import("suite.zig");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{
-        .stack_trace_frames = 30,
-    }){};
-    defer {
-        _ = gpa.detectLeaks();
-    }
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .stack_trace_frames = 30 }){};
+    defer _ = gpa.detectLeaks();
     const allocator = gpa.allocator();
 
     const cases = try suite.getCases(allocator);
+    defer cases.deinit();
+
     const filtered_cases = try suite.getCaseFilters(allocator);
-    defer {
-        filtered_cases.deinit();
-        cases.deinit();
-    }
+    defer filtered_cases.deinit();
 
     var string_set = std.StringHashMap(suite.CaseFilter).init(allocator);
     defer string_set.deinit();
