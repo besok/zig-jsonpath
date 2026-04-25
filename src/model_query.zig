@@ -24,30 +24,34 @@ pub fn querySlice(slice: model.Slice, iteration: *q.JsonPathIter) !void {
 
                 if (step > 0) {
                     const n_start = norm(slice.start orelse 0, len);
-                    const n_end   = norm(slice.end orelse len, len);
-                    const lower   = @max(@min(n_start, len), 0);
-                    const upper   = @max(@min(n_end,   len), 0);
+                    const n_end = norm(slice.end orelse len, len);
+                    const lower = @max(@min(n_start, len), 0);
+                    const upper = @max(@min(n_end, len), 0);
 
                     var idx: i64 = lower;
                     while (idx < upper) : (idx += step) {
                         const i: usize = @intCast(idx);
                         const new_path = try std.fmt.allocPrint(
-                            iteration.allocator, "{s}[{d}]", .{ cursor.path, i },
+                            iteration.allocator,
+                            "{s}[{d}]",
+                            .{ cursor.path, i },
                         );
                         errdefer iteration.allocator.free(new_path);
                         try next_pointers.append(iteration.allocator, .{ .json = &arr.items[i], .path = new_path });
                     }
                 } else {
                     const n_start = norm(slice.start orelse len - 1, len);
-                    const n_end   = norm(slice.end orelse -len - 1, len);
-                    const lower   = @max(@min(n_end,   len - 1), -1);
-                    const upper   = @max(@min(n_start, len - 1), -1);
+                    const n_end = norm(slice.end orelse -len - 1, len);
+                    const lower = @max(@min(n_end, len - 1), -1);
+                    const upper = @max(@min(n_start, len - 1), -1);
 
                     var idx: i64 = upper;
                     while (idx > lower) : (idx += step) {
                         const i: usize = @intCast(idx);
                         const new_path = try std.fmt.allocPrint(
-                            iteration.allocator, "{s}[{d}]", .{ cursor.path, i },
+                            iteration.allocator,
+                            "{s}[{d}]",
+                            .{ cursor.path, i },
                         );
                         errdefer iteration.allocator.free(new_path);
                         try next_pointers.append(iteration.allocator, .{ .json = &arr.items[i], .path = new_path });
@@ -62,7 +66,6 @@ pub fn querySlice(slice: model.Slice, iteration: *q.JsonPathIter) !void {
     iteration.cursors.deinit(iteration.allocator);
     iteration.cursors = next_pointers;
 }
-
 
 pub fn queryName(name: []const u8, iteration: *q.JsonPathIter) !void {
     var i: usize = 0;
@@ -179,13 +182,78 @@ pub fn queryDescendant(iteration: *q.JsonPathIter) !void {
     try deduplicateByPath(iteration);
 }
 
+pub fn querySingularQuerySegmentByIndex(
+    index: i64,
+    iteration: *q.JsonPathIter,
+) !void {
+    var i: usize = 0;
+    while (i < iteration.cursors.items.len) {
+        const cursor = iteration.cursors.items[i];
+        switch (cursor.json.*) {
+            .array => |arr| {
+                const resolved_index: usize = if (index >= 0) blk: {
+                    const pos: usize = @intCast(index);
+                    if (pos >= arr.items.len) {
+                        iteration.remove(i);
+                        continue;
+                    }
+                    break :blk pos;
+                } else blk: {
+                    const abs: usize = @intCast(-index);
+                    if (abs > arr.items.len) {
+                        iteration.remove(i);
+                        continue;
+                    }
+                    break :blk arr.items.len - abs;
+                };
+
+                const new_path = try std.fmt.allocPrint(
+                    iteration.allocator,
+                    "{s}[{d}]",
+                    .{ cursor.path, resolved_index },
+                );
+                iteration.allocator.free(cursor.path);
+                iteration.cursors.items[i] = .{ .json = &arr.items[resolved_index], .path = new_path };
+                i += 1;
+            },
+            else => iteration.remove(i),
+        }
+    }
+}
+
+pub fn querySingularQuerySegmentByName(
+    name: []const u8,
+    iteration: *q.JsonPathIter,
+) !void {
+    var i: usize = 0;
+    while (i < iteration.cursors.items.len) {
+        const cursor = iteration.cursors.items[i];
+        switch (cursor.json.*) {
+            .object => |obj| {
+                if (obj.getPtr(name)) |val| {
+                    const new_path = try std.fmt.allocPrint(
+                        iteration.allocator,
+                        "{s}['{s}']",
+                        .{ cursor.path, name },
+                    );
+                    iteration.allocator.free(cursor.path);
+                    iteration.cursors.items[i] = .{ .json = val, .path = new_path };
+                    i += 1;
+                } else {
+                    iteration.remove(i);
+                }
+            },
+            else => iteration.remove(i),
+        }
+    }
+}
+
 fn collectDescendants(
     allocator: std.mem.Allocator,
     value: *std.json.Value,
     path: []const u8,
     out: *std.ArrayListUnmanaged(q.JsonPointer),
 ) !void {
-
     try out.append(allocator, .{ .json = value, .path = try allocator.dupe(u8, path) });
 
     switch (value.*) {
@@ -209,6 +277,7 @@ fn collectDescendants(
         else => {},
     }
 }
+
 fn deduplicateByPath(iteration: *q.JsonPathIter) !void {
     var seen = std.StringHashMap(void).init(iteration.allocator);
     defer seen.deinit();

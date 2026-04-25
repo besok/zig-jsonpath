@@ -17,7 +17,7 @@ pub fn text_query(
     errdefer json.deinit();
     var parser = jsp.JPQueryParser.init(path, allocator);
     var jp_path = try parser.parse();
-    errdefer jp_path.deinit(allocator);
+    defer jp_path.deinit(allocator);
     return try query.perform(json, &jp_path, allocator);
 }
 
@@ -25,6 +25,7 @@ test "smoke" {
     const allocator = std.testing.allocator;
     const source = "{\"foo\": [1, 2, 3]}";
     const path = "$.foo[*]";
-    const result = try text_query(source, path, allocator);
-    try std.testing.expectEqual(0, result.results.len);
+    var result = try text_query(source, path, allocator);
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 3), result.results.len);
 }

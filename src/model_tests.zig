@@ -544,3 +544,91 @@ test "query selectors no match" {
     var expected = TestIter.init(&.{});
     try expected.shouldEql(&iter);
 }
+
+test "jsquery singular-like name selection keeps matched key" {
+    var tjson = try TestJson.init("{\"a\":1,\"b\":2}");
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$.a");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp_a = try TestJson.init("1");
+    defer exp_a.deinit(std.testing.allocator);
+    var expected = TestIter.init(&.{ptr(exp_a.value(), "$['a']")});
+    try expected.shouldEql(&iter);
+}
+
+test "jsquery singular-like name selection removes non-matching key" {
+    var tjson = try TestJson.init("{\"a\":1}");
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$.missing");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var expected = TestIter.init(&.{});
+    try expected.shouldEql(&iter);
+}
+
+test "jsquery singular-like index supports positive and negative indexes" {
+    var tjson = try TestJson.init("[10,20,30]");
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query_pos = try init_query("$[1]");
+    defer js_query_pos.deinit(std.testing.allocator);
+
+    var iter_pos = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query_pos.query(&iter_pos);
+    defer iter_pos.deinit();
+
+    var exp_pos = try TestJson.init("20");
+    defer exp_pos.deinit(std.testing.allocator);
+    var expected_pos = TestIter.init(&.{ptr(exp_pos.value(), "$[1]")});
+    try expected_pos.shouldEql(&iter_pos);
+
+    var js_query_neg = try init_query("$[-1]");
+    defer js_query_neg.deinit(std.testing.allocator);
+
+    var iter_neg = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query_neg.query(&iter_neg);
+    defer iter_neg.deinit();
+
+    var exp_neg = try TestJson.init("30");
+    defer exp_neg.deinit(std.testing.allocator);
+    var expected_neg = TestIter.init(&.{ptr(exp_neg.value(), "$[-1]")});
+    try expected_neg.shouldEql(&iter_neg);
+}
+
+test "jsquery singular-like index removes out of bounds and non-arrays" {
+    var tjson_arr = try TestJson.init("[10,20]");
+    defer tjson_arr.deinit(std.testing.allocator);
+
+    var js_query_oob = try init_query("$[99]");
+    defer js_query_oob.deinit(std.testing.allocator);
+
+    var iter_oob = Iter.init(tjson_arr.value(), std.testing.allocator);
+    try js_query_oob.query(&iter_oob);
+    defer iter_oob.deinit();
+
+    var expected_empty = TestIter.init(&.{});
+    try expected_empty.shouldEql(&iter_oob);
+
+    var tjson_obj = try TestJson.init("{\"a\":1}");
+    defer tjson_obj.deinit(std.testing.allocator);
+
+    var js_query_non_array = try init_query("$.a[0]");
+    defer js_query_non_array.deinit(std.testing.allocator);
+
+    var iter_non_array = Iter.init(tjson_obj.value(), std.testing.allocator);
+    try js_query_non_array.query(&iter_non_array);
+    defer iter_non_array.deinit();
+
+    try expected_empty.shouldEql(&iter_non_array);
+}

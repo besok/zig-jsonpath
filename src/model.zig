@@ -31,7 +31,7 @@ pub const Segment = union(enum) {
     selectors: []Selector,
 
     pub fn deinit(self: *Segment, allocator: std.mem.Allocator) void {
-           switch (self.*) {
+        switch (self.*) {
             .descendant => |s| {
                 s.deinit(allocator);
                 allocator.destroy(s);
@@ -282,7 +282,7 @@ pub const Test = union(enum) {
 
     pub fn deinit(self: *Test, allocator: std.mem.Allocator) void {
         switch (self.*) {
-            .abs_query => |*query| query.deinit(allocator),
+            .abs_query => |*jpq| jpq.deinit(allocator),
             .rel_query => |ss| {
                 for (ss) |*s| s.deinit(allocator);
                 allocator.free(ss);
@@ -303,6 +303,21 @@ pub const Test = union(enum) {
                 break :blk true;
             },
         };
+    }
+    pub fn query(self: Test, iteration: *Iter) !void {
+        switch (self) {
+            .abs_query => |jpq| {
+                try jpq.query(iteration);
+            },
+            .rel_query => |segments| {
+                for (segments) |seg| {
+                    try seg.query(iteration);
+                }
+            },
+            .function => |f| {
+                _ = f;
+            },
+        }
     }
 };
 
@@ -556,6 +571,15 @@ pub const SingularQuerySegment = union(enum) {
             .index => |v| v == other.index,
         };
     }
+
+    pub fn query(self: SingularQuerySegment, iter: *Iter) !void {
+        switch (self) {
+            .index => |i| try inner.querySingularQuerySegmentByIndex(i, iter),
+            .name => |n| try inner.querySingularQuerySegmentByName(n, iter),
+        }
+    }
+
+
 };
 
 /// Creates a SingularQuerySegment from a value. Usage:
