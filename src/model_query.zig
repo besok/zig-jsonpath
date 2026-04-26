@@ -1,6 +1,7 @@
-const q = @import("query.zig");
-const model = @import("model.zig");
 const std = @import("std");
+
+const model = @import("model.zig");
+const q = @import("query.zig");
 
 pub fn querySlice(slice: model.Slice, iteration: *q.JsonPathIter) !void {
     var next_pointers = std.ArrayListUnmanaged(q.JsonPointer){};
@@ -247,6 +248,14 @@ pub fn querySingularQuerySegmentByName(
         }
     }
 }
+
+fn queryLength(arg: model.FnArg, iteration: *q.JsonPathIter) !void {}
+
+fn queryValue(arg: model.FnArg, iteration: *q.JsonPathIter) !void {}
+fn queryCount(arg: model.FnArg, iteration: *q.JsonPathIter) !void {}
+fn querySearch(lhs: model.FnArg, rhs: model.FnArg, iteration: *q.JsonPathIter) !void {}
+fn queryMatch(lhs: model.FnArg, rhs: model.FnArg, iteration: *q.JsonPathIter) !void {}
+fn queryCustom(name: []const u8, args: []model.FnArg, iteration: *q.JsonPathIter) !void {}
 
 fn collectDescendants(
     allocator: std.mem.Allocator,

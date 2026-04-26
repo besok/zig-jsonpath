@@ -367,6 +367,17 @@ pub const TestFunction = union(enum) {
             },
         };
     }
+
+    pub fn query(self: TestFunction, iter: *Iter) !void {
+        switch (self) {
+            .length => |v| inner.queryLength(v.arg, iter),
+            .value => |v| inner.queryValue(v.arg, iter),
+            .count => |v| inner.queryCount(v.arg, iter),
+            .search => |v| inner.querySearch(v.lhs, v.rhs, iter),
+            .match => |v| inner.queryMatch(v.lhs, v.rhs, iter),
+            .custom => |v| inner.queryMatch(v.name, v.args, iter),
+        }
+    }
 };
 
 pub const FnArg = union(enum) {
@@ -418,6 +429,15 @@ pub const Literal = union(enum) {
             .str => |v| std.mem.eql(u8, v, other.str),
             .bool => |v| v == other.bool,
             .null => true,
+        };
+    }
+    pub fn toJsValue(self: Literal) std.json.Value {
+        return switch (self) {
+            .int => |v| .{ .integer = v },
+            .float => |v| .{ .float = v },
+            .str => |v| .{ .string = v },
+            .bool => |v| .{ .bool = v },
+            .null => .null,
         };
     }
 };
@@ -552,6 +572,23 @@ pub const SingularQuery = union(enum) {
         }
         return true;
     }
+    pub fn query(self: SingularQuery, iter: *Iter) !void {
+        switch (self) {
+            .root => |segs| {
+                for (iter.cursors.items) |*p| p.deinit(iter.allocator);
+                iter.cursors.clearRetainingCapacity();
+                try iter.append(iter.root, "$");
+                for (segs) |seg| {
+                    try seg.query(iter);
+                }
+            },
+            .current => |segs| {
+                for (segs) |seg| {
+                    try seg.query(iter);
+                }
+            },
+        }
+    }
 };
 
 pub const SingularQuerySegment = union(enum) {
@@ -578,8 +615,6 @@ pub const SingularQuerySegment = union(enum) {
             .name => |n| try inner.querySingularQuerySegmentByName(n, iter),
         }
     }
-
-
 };
 
 /// Creates a SingularQuerySegment from a value. Usage:
