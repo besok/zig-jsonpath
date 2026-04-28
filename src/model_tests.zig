@@ -632,3 +632,288 @@ test "jsquery singular-like index removes out of bounds and non-arrays" {
 
     try expected_empty.shouldEql(&iter_non_array);
 }
+
+test "filter eq string" {
+    var tjson = try TestJson.init(
+        \\[{"name":"a","val":1},{"name":"b","val":2}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?@.name == 'a']");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp = try TestJson.init("{\"name\":\"a\",\"val\":1}");
+    defer exp.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{ptr(exp.value(), "$[0]")});
+    try expected.shouldEql(&iter);
+}
+
+test "filter eq integer" {
+    var tjson = try TestJson.init(
+        \\[{"val":1},{"val":2},{"val":3}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?@.val == 2]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp = try TestJson.init("{\"val\":2}");
+    defer exp.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{ptr(exp.value(), "$[1]")});
+    try expected.shouldEql(&iter);
+}
+
+test "filter gt" {
+    var tjson = try TestJson.init(
+        \\[{"val":1},{"val":2},{"val":3}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?@.val > 1]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp1 = try TestJson.init("{\"val\":2}");
+    defer exp1.deinit(std.testing.allocator);
+    var exp2 = try TestJson.init("{\"val\":3}");
+    defer exp2.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp1.value(), "$[1]"),
+        ptr(exp2.value(), "$[2]"),
+    });
+    try expected.shouldEql(&iter);
+}
+
+test "filter lte" {
+    var tjson = try TestJson.init(
+        \\[{"val":1},{"val":2},{"val":3}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?@.val <= 2]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp1 = try TestJson.init("{\"val\":1}");
+    defer exp1.deinit(std.testing.allocator);
+    var exp2 = try TestJson.init("{\"val\":2}");
+    defer exp2.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp1.value(), "$[0]"),
+        ptr(exp2.value(), "$[1]"),
+    });
+    try expected.shouldEql(&iter);
+}
+
+test "filter ne" {
+    var tjson = try TestJson.init(
+        \\[{"val":1},{"val":2},{"val":3}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?@.val != 2]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp1 = try TestJson.init("{\"val\":1}");
+    defer exp1.deinit(std.testing.allocator);
+    var exp2 = try TestJson.init("{\"val\":3}");
+    defer exp2.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp1.value(), "$[0]"),
+        ptr(exp2.value(), "$[2]"),
+    });
+    try expected.shouldEql(&iter);
+}
+
+test "filter existence test" {
+    var tjson = try TestJson.init(
+        \\[{"a":1},{"b":2},{"a":3}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?@.a]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp1 = try TestJson.init("{\"a\":1}");
+    defer exp1.deinit(std.testing.allocator);
+    var exp2 = try TestJson.init("{\"a\":3}");
+    defer exp2.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp1.value(), "$[0]"),
+        ptr(exp2.value(), "$[2]"),
+    });
+    try expected.shouldEql(&iter);
+}
+
+test "filter not existence test" {
+    var tjson = try TestJson.init(
+        \\[{"a":1},{"b":2},{"a":3}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?!@.a]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp = try TestJson.init("{\"b\":2}");
+    defer exp.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{ptr(exp.value(), "$[1]")});
+    try expected.shouldEql(&iter);
+}
+
+test "filter and" {
+    var tjson = try TestJson.init(
+        \\[{"val":1,"ok":true},{"val":2,"ok":true},{"val":3,"ok":false}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?@.val > 1 && @.ok == true]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp = try TestJson.init("{\"val\":2,\"ok\":true}");
+    defer exp.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{ptr(exp.value(), "$[1]")});
+    try expected.shouldEql(&iter);
+}
+
+test "filter or" {
+    var tjson = try TestJson.init(
+        \\[{"val":1},{"val":2},{"val":3}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?@.val == 1 || @.val == 3]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp1 = try TestJson.init("{\"val\":1}");
+    defer exp1.deinit(std.testing.allocator);
+    var exp2 = try TestJson.init("{\"val\":3}");
+    defer exp2.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp1.value(), "$[0]"),
+        ptr(exp2.value(), "$[2]"),
+    });
+    try expected.shouldEql(&iter);
+}
+
+test "filter null comparison" {
+    var tjson = try TestJson.init(
+        \\[{"val":null},{"val":1}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?@.val == null]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp = try TestJson.init("{\"val\":null}");
+    defer exp.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{ptr(exp.value(), "$[0]")});
+    try expected.shouldEql(&iter);
+}
+
+test "filter absolute query" {
+    var tjson = try TestJson.init(
+        \\{"items":[1,2,3],"threshold":2}
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$.items[?@ > $.threshold]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp = try TestJson.init("3");
+    defer exp.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{ptr(exp.value(), "$['items'][2]")});
+    try expected.shouldEql(&iter);
+}
+
+test "filter length function" {
+    var tjson = try TestJson.init(
+        \\[{"name":"ab"},{"name":"abcd"},{"name":"a"}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?length(@.name) > 2]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp = try TestJson.init("{\"name\":\"abcd\"}");
+    defer exp.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{ptr(exp.value(), "$[1]")});
+    try expected.shouldEql(&iter);
+}
+
+test "filter count function" {
+    var tjson = try TestJson.init(
+        \\[{"tags":["a","b","c"]},{"tags":["x"]}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?count(@.tags.*) > 1]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp = try TestJson.init("{\"tags\":[\"a\",\"b\",\"c\"]}");
+    defer exp.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{ptr(exp.value(), "$[0]")});
+    try expected.shouldEql(&iter);
+}

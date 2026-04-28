@@ -248,14 +248,140 @@ pub fn querySingularQuerySegmentByName(
         }
     }
 }
+fn evaluateArg(arg: model.FnArg, iter: *q.JsonPathIter) !?std.json.Value {
+    return switch (arg) {
+        .lit => |l| l.toJsValue(),
+        .test_arg => |t| {
+            try t.query(iter);
+            return if (iter.cursors.items.len == 1) iter.cursors.items[0].json.* else null;
+        },
+        .filter => null,
+    };
+}
 
-fn queryLength(arg: model.FnArg, iteration: *q.JsonPathIter) !void {}
+pub fn queryLength(arg: model.FnArg, iter: *q.JsonPathIter) !?std.json.Value {
+    var branch = try iter.fork();
+    defer branch.deinit();
 
-fn queryValue(arg: model.FnArg, iteration: *q.JsonPathIter) !void {}
-fn queryCount(arg: model.FnArg, iteration: *q.JsonPathIter) !void {}
-fn querySearch(lhs: model.FnArg, rhs: model.FnArg, iteration: *q.JsonPathIter) !void {}
-fn queryMatch(lhs: model.FnArg, rhs: model.FnArg, iteration: *q.JsonPathIter) !void {}
-fn queryCustom(name: []const u8, args: []model.FnArg, iteration: *q.JsonPathIter) !void {}
+    const val = try evaluateArg(arg, &branch) orelse return null;
+    return switch (branch.cursors.items.len) {
+        0 => null,
+        1 => lengthOfValue(val),
+        else => |n| .{ .integer = @intCast(n) },
+    };
+}
+
+pub fn queryCount(arg: model.FnArg, iter: *q.JsonPathIter) !?std.json.Value {
+    var branch = try iter.fork();
+    defer branch.deinit();
+
+    _ = try evaluateArg(arg, &branch);
+    return switch (branch.cursors.items.len) {
+        0 => null,
+        else => |n| .{ .integer = @intCast(n) },
+    };
+}
+
+pub fn queryValue(arg: model.FnArg, iter: *q.JsonPathIter) !?std.json.Value {
+    var branch = try iter.fork();
+    defer branch.deinit();
+
+    return evaluateArg(arg, &branch);
+}
+
+pub fn queryMatch(lhs: model.FnArg, rhs: model.FnArg, iter: *q.JsonPathIter) !?std.json.Value {
+    return queryRegex(lhs, rhs, false, iter);
+}
+
+pub fn querySearch(lhs: model.FnArg, rhs: model.FnArg, iter: *q.JsonPathIter) !?std.json.Value {
+    return queryRegex(lhs, rhs, true, iter);
+}
+
+pub fn queryRegex(lhs: model.FnArg, rhs: model.FnArg, substr: bool, iter: *q.JsonPathIter) !?std.json.Value {
+    var lhs_branch = try iter.fork();
+    defer lhs_branch.deinit();
+    const lhs_val = try evaluateArg(lhs, &lhs_branch) orelse return .{ .bool = false };
+
+    var rhs_branch = try iter.fork();
+    defer rhs_branch.deinit();
+    const rhs_val = try evaluateArg(rhs, &rhs_branch) orelse return .{ .bool = false };
+
+    const lhs_str = switch (lhs_val) {
+        .string => |v| v,
+        else => return .{ .bool = false },
+    };
+    const rhs_str = switch (rhs_val) {
+        .string => |v| v,
+        else => return .{ .bool = false },
+    };
+
+    const matched = try matchRegex(lhs_str, rhs_str, substr, iter.allocator);
+    return .{ .bool = matched };
+}
+pub fn matchRegex(input: []const u8, pattern: []const u8, substr: bool, allocator: std.mem.Allocator) !bool {
+    _ = input;
+    _ = pattern;
+    _ = substr;
+    _ = allocator;
+    return false;
+}
+
+pub fn queryCustom(name: []const u8, args: []model.FnArg, iter: *q.JsonPathIter) !?std.json.Value {
+    _ = name;
+    _ = args;
+    _ = iter;
+    return null;
+}
+
+fn lengthOfValue(val: std.json.Value) ?std.json.Value {
+    return switch (val) {
+        .string => |v| .{ .integer = @intCast(std.unicode.utf8CountCodepoints(v) catch return null) },
+        .array => |v| .{ .integer = @intCast(v.items.len) },
+        .object => |v| .{ .integer = @intCast(v.count()) },
+        else => null,
+    };
+}
+
+pub fn jsonValueEql(a: std.json.Value, b: std.json.Value) bool {
+    return switch (a) {
+        .null    => b == .null,
+        .bool    => |v| switch (b) { .bool => |w| v == w, else => false },
+        .integer => |v| switch (b) {
+            .integer => |w| v == w,
+            .float   => |w| @as(f64, @floatFromInt(v)) == w,
+            else     => false,
+        },
+        .float   => |v| switch (b) {
+            .float   => |w| @abs(v - w) < 0.0001,
+            .integer => |w| v == @as(f64, @floatFromInt(w)),
+            else     => false,
+        },
+        .string  => |v| switch (b) { .string => |w| std.mem.eql(u8, v, w), else => false },
+        // arrays/objects not comparable per RFC 9535
+        else     => false,
+    };
+}
+
+pub fn jsonValueCmp(a: std.json.Value, b: std.json.Value) ?std.math.Order {
+    return switch (a) {
+        .integer => |v| switch (b) {
+            .integer => std.math.order(v, b.integer),
+            .float   => std.math.order(@as(f64, @floatFromInt(v)), b.float),
+            else     => null, // incomparable types
+        },
+        .float   => |v| switch (b) {
+            .float   => std.math.order(v, b.float),
+            .integer => std.math.order(v, @as(f64, @floatFromInt(b.integer))),
+            else     => null,
+        },
+        .string  => |v| switch (b) {
+            .string  => std.mem.order(u8, v, b.string),
+            else     => null,
+        },
+        // null/bool/array/object are not ordered per RFC 9535
+        else     => null,
+    };
+}
 
 fn collectDescendants(
     allocator: std.mem.Allocator,

@@ -3,8 +3,8 @@ const jsonpath = @import("jsonpath");
 const suite = @import("suite.zig");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .stack_trace_frames = 30 }){};
-    defer _ = gpa.detectLeaks();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
     const cases = try suite.getCases(allocator);

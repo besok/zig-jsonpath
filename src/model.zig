@@ -214,12 +214,33 @@ pub const Filter = union(enum) {
         };
     }
 
-    pub fn query(self: Filter, iteration: *Iter) !void {
+    pub fn query(self: Filter, iteration: *Iter) anyerror!void {
         switch (self) {
-            .ors => |_| {},
-            .ands => |_| {},
-            .atom => |a| {
-                try a.query(iteration);
+            .atom => |a| try a.query(iteration),
+            .ands => |fs| {
+                for (fs) |f| try f.query(iteration);
+            },
+            .ors => |fs| {
+                var next = std.ArrayListUnmanaged(q.JsonPointer){};
+                errdefer {
+                    for (next.items) |*p| p.deinit(iteration.allocator);
+                    next.deinit(iteration.allocator);
+                }
+
+                for (fs) |f| {
+                    var branch = try iteration.fork();
+                    defer branch.deinit();
+                    try f.query(&branch);
+                    for (branch.cursors.items) |p| {
+                        const duped = try iteration.allocator.dupe(u8, p.path);
+                        errdefer iteration.allocator.free(duped);
+                        try next.append(iteration.allocator, .{ .json = p.json, .path = duped });
+                    }
+                }
+
+                for (iteration.cursors.items) |*p| p.deinit(iteration.allocator);
+                iteration.cursors.deinit(iteration.allocator);
+                iteration.cursors = next;
             },
         }
     }
@@ -264,12 +285,78 @@ pub const FilterAtom = union(enum) {
         };
     }
 
-    pub fn query(self: FilterAtom, iteration: *Iter) !void {
+    pub fn query(self: FilterAtom, iteration: *Iter) anyerror!void {
         switch (self) {
-            .filter => |_| {},
-            .test_expr => |_| {},
+            .filter => |f| {
+                var passing = std.ArrayListUnmanaged(q.JsonPointer){};
+                errdefer {
+                    for (passing.items) |*p| p.deinit(iteration.allocator);
+                    passing.deinit(iteration.allocator);
+                }
+
+                for (iteration.cursors.items) |cursor| {
+                    var branch = try iteration.forkSingle(cursor);
+                    defer branch.deinit();
+                    try f.expr.query(&branch);
+
+                    const survived = branch.cursors.items.len > 0;
+                    const passes = if (f.not) !survived else survived;
+                    if (passes) {
+                        const duped = try iteration.allocator.dupe(u8, cursor.path);
+                        errdefer iteration.allocator.free(duped);
+                        try passing.append(iteration.allocator, .{ .json = cursor.json, .path = duped });
+                    }
+                }
+
+                for (iteration.cursors.items) |*p| p.deinit(iteration.allocator);
+                iteration.cursors.deinit(iteration.allocator);
+                iteration.cursors = passing;
+            },
+            .test_expr => |t| {
+                var passing = std.ArrayListUnmanaged(q.JsonPointer){};
+                errdefer {
+                    for (passing.items) |*p| p.deinit(iteration.allocator);
+                    passing.deinit(iteration.allocator);
+                }
+
+                for (iteration.cursors.items) |cursor| {
+                    var branch = try iteration.forkSingle(cursor);
+                    defer branch.deinit();
+                    try t.expr.query(&branch);
+
+                    const exists = branch.cursors.items.len > 0;
+                    const passes = if (t.not) !exists else exists;
+                    if (passes) {
+                        const duped = try iteration.allocator.dupe(u8, cursor.path);
+                        errdefer iteration.allocator.free(duped);
+                        try passing.append(iteration.allocator, .{ .json = cursor.json, .path = duped });
+                    }
+                }
+
+                for (iteration.cursors.items) |*p| p.deinit(iteration.allocator);
+                iteration.cursors.deinit(iteration.allocator);
+                iteration.cursors = passing;
+            },
             .compare => |c| {
-                try c.query(iteration);
+                var passing = std.ArrayListUnmanaged(q.JsonPointer){};
+                errdefer {
+                    for (passing.items) |*p| p.deinit(iteration.allocator);
+                    passing.deinit(iteration.allocator);
+                }
+
+                for (iteration.cursors.items) |cursor| {
+                    var branch = try iteration.forkSingle(cursor);
+                    defer branch.deinit();
+                    if (try c.evaluate(&branch)) {
+                        const duped = try iteration.allocator.dupe(u8, cursor.path);
+                        errdefer iteration.allocator.free(duped);
+                        try passing.append(iteration.allocator, .{ .json = cursor.json, .path = duped });
+                    }
+                }
+
+                for (iteration.cursors.items) |*p| p.deinit(iteration.allocator);
+                iteration.cursors.deinit(iteration.allocator);
+                iteration.cursors = passing;
             },
         }
     }
@@ -304,9 +391,11 @@ pub const Test = union(enum) {
             },
         };
     }
-    pub fn query(self: Test, iteration: *Iter) !void {
+    pub fn query(self: Test, iteration: *Iter) anyerror!void {
         switch (self) {
             .abs_query => |jpq| {
+                for (iteration.cursors.items) |*p| p.deinit(iteration.allocator);
+                iteration.cursors.clearRetainingCapacity();
                 try jpq.query(iteration);
             },
             .rel_query => |segments| {
@@ -315,7 +404,11 @@ pub const Test = union(enum) {
                 }
             },
             .function => |f| {
-                _ = f;
+                const val = try f.evaluate(iteration);
+                if (val == null) {
+                    for (iteration.cursors.items) |*p| p.deinit(iteration.allocator);
+                    iteration.cursors.clearRetainingCapacity();
+                }
             },
         }
     }
@@ -368,15 +461,15 @@ pub const TestFunction = union(enum) {
         };
     }
 
-    pub fn query(self: TestFunction, iter: *Iter) !void {
-        switch (self) {
-            .length => |v| inner.queryLength(v.arg, iter),
-            .value => |v| inner.queryValue(v.arg, iter),
-            .count => |v| inner.queryCount(v.arg, iter),
-            .search => |v| inner.querySearch(v.lhs, v.rhs, iter),
-            .match => |v| inner.queryMatch(v.lhs, v.rhs, iter),
-            .custom => |v| inner.queryMatch(v.name, v.args, iter),
-        }
+    pub fn evaluate(self: TestFunction, iter: *Iter) !?std.json.Value {
+        return switch (self) {
+            .length => |v| try inner.queryLength(v.arg, iter),
+            .value => |v| try inner.queryValue(v.arg, iter),
+            .count => |v| try inner.queryCount(v.arg, iter),
+            .search => |v| try inner.querySearch(v.lhs, v.rhs, iter),
+            .match => |v| try inner.queryMatch(v.lhs, v.rhs, iter),
+            .custom => |v| try inner.queryCustom(v.name, v.args, iter),
+        };
     }
 };
 
@@ -486,15 +579,22 @@ pub const Comparison = union(enum) {
             },
         }
     }
-    pub fn query(self: Comparison, _: *Iter) !void {
-        switch (self) {
-            .eq => {},
-            .ne => {},
-            .gt => {},
-            .gte => {},
-            .lt => {},
-            .lte => {},
-        }
+    pub fn evaluate(self: Comparison, iter: *Iter) !bool {
+        const op = switch (self) {
+            inline else => |v| v,
+        };
+
+        const lhs = try op.lhs.evaluate(iter) orelse return false;
+        const rhs = try op.rhs.evaluate(iter) orelse return false;
+
+        return switch (self) {
+            .eq => inner.jsonValueEql(lhs, rhs),
+            .ne => !inner.jsonValueEql(lhs, rhs),
+            .gt => (inner.jsonValueCmp(lhs, rhs) orelse return false) == .gt,
+            .lt => (inner.jsonValueCmp(lhs, rhs) orelse return false) == .lt,
+            .gte => (inner.jsonValueCmp(lhs, rhs) orelse return false) != .lt,
+            .lte => (inner.jsonValueCmp(lhs, rhs) orelse return false) != .gt,
+        };
     }
 };
 
@@ -535,6 +635,18 @@ pub const Comparable = union(enum) {
             .lit => |v| v.eql(other.lit),
             .function => |v| v.eql(other.function),
             .query => |v| v.eql(other.query),
+        };
+    }
+    pub fn evaluate(self: Comparable, iter: *Iter) !?std.json.Value {
+        return switch (self) {
+            .lit => |l| l.toJsValue(),
+            .function => |f| try f.evaluate(iter),
+            .query => |sq| blk: {
+                var branch = try iter.fork();
+                defer branch.deinit();
+                try sq.query(&branch);
+                break :blk if (branch.cursors.items.len == 1) branch.cursors.items[0].json.* else null;
+            },
         };
     }
 };

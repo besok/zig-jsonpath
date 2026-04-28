@@ -94,6 +94,22 @@ pub const JsonPathIter = struct {
         var r = self.cursors.orderedRemove(i);
         r.deinit(self.allocator);
     }
+    pub fn fork(self: *JsonPathIter) !JsonPathIter {
+        var branch = JsonPathIter.init(self.root, self.allocator);
+        for (self.cursors.items) |p| {
+            const duped = try self.allocator.dupe(u8, p.path);
+            errdefer self.allocator.free(duped);
+            try branch.cursors.append(self.allocator, .{ .json = p.json, .path = duped });
+        }
+        return branch;
+    }
+    pub fn forkSingle(self: *JsonPathIter, cursor: JsonPointer) !JsonPathIter {
+        var branch = JsonPathIter.init(self.root, self.allocator);
+        const duped = try self.allocator.dupe(u8, cursor.path);
+        errdefer self.allocator.free(duped);
+        try branch.cursors.append(self.allocator, .{ .json = cursor.json, .path = duped });
+        return branch;
+    }
 };
 
 pub fn query(node: anytype, iteration: *JsonPathIter) !void {
