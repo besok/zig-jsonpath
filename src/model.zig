@@ -2,6 +2,28 @@ const std = @import("std");
 const q = @import("query.zig");
 const Iter = q.JsonPathIter;
 const inner = @import("model_query.zig");
+
+const debug_query = false;
+
+inline fn dbg(comptime fmt: []const u8, args: anytype) void {
+    if (debug_query) std.debug.print(fmt, args);
+}
+
+fn debugCursors(label: []const u8, iter: *Iter) void {
+    if (!debug_query) return;
+    std.debug.print("[{s}] {d} cursors:\n", .{ label, iter.cursors.items.len });
+    for (iter.cursors.items) |c| {
+        std.debug.print("  path={s} value={f}\n", .{
+            c.path,
+            std.json.fmt(c.json.*, .{}),
+        });
+    }
+}
+
+fn debugCursorsAt(iter: *Iter) void {
+    debugCursors("CURSORS", iter);
+}
+
 pub const JPQuery = struct {
     segments: []Segment,
 
@@ -18,10 +40,12 @@ pub const JPQuery = struct {
     }
     pub fn query(self: *const JPQuery, iteration: *Iter) !void {
         var iter = iteration;
+        dbg("[JPQuery] start, cursors: {d}\n", .{iter.cursors.items.len});
         try iter.append(iter.root, "$");
         for (self.segments) |seg| {
             try seg.query(iter);
         }
+        dbg("[JPQuery] end, cursors: {d}\n", .{iter.cursors.items.len});
     }
 };
 
@@ -58,6 +82,7 @@ pub const Segment = union(enum) {
         };
     }
     pub fn query(self: Segment, iteration: *Iter) !void {
+        dbg("[Segment] tag={s}, cursors before: {d}\n", .{ @tagName(self), iteration.cursors.items.len });
         switch (self) {
             .selector => |s| try s.query(iteration),
             .selectors => |ss| {
@@ -92,6 +117,7 @@ pub const Segment = union(enum) {
                 try s.query(iteration);
             },
         }
+        dbg("[Segment] tag={s}, cursors after: {d}\n", .{ @tagName(self), iteration.cursors.items.len });
     }
 };
 
@@ -121,33 +147,66 @@ pub const Selector = union(enum) {
     }
 
     pub fn query(self: Selector, iteration: *Iter) !void {
+        dbg("[Selector] tag={s}, cursors before: {d}\n", .{ @tagName(self), iteration.cursors.items.len });
+        debugCursorsAt(iteration);
         switch (self) {
-            .wildcard => {
-                try inner.queryWildcard(iteration);
-            },
+            .wildcard => try inner.queryWildcard(iteration),
             .name => |n| {
+                dbg("[Selector.name] name={s}\n", .{n});
                 try inner.queryName(n, iteration);
             },
             .index => |i| {
+                dbg("[Selector.index] index={d}\n", .{i});
                 try inner.queryIndex(i, iteration);
             },
-            .slice => |slce| {
-                try inner.querySlice(slce, iteration);
-            },
+            .slice => |slce| try inner.querySlice(slce, iteration),
             .filter => |f| {
+                var next = std.ArrayListUnmanaged(q.JsonPointer){};
+                errdefer {
+                    for (next.items) |*p| p.deinit(iteration.allocator);
+                    next.deinit(iteration.allocator);
+                }
+
+                for (iteration.cursors.items) |cursor| {
+                    switch (cursor.json.*) {
+                        .array => |arr| {
+                            for (arr.items, 0..) |*elem, i| {
+                                const path = try std.fmt.allocPrint(
+                                    iteration.allocator,
+                                    "{s}[{d}]",
+                                    .{ cursor.path, i },
+                                );
+                                errdefer iteration.allocator.free(path);
+                                try next.append(iteration.allocator, .{ .json = elem, .path = path });
+                            }
+                        },
+                        .object => |obj| {
+                            var it = obj.iterator();
+                            while (it.next()) |entry| {
+                                const path = try std.fmt.allocPrint(
+                                    iteration.allocator,
+                                    "{s}['{s}']",
+                                    .{ cursor.path, entry.key_ptr.* },
+                                );
+                                errdefer iteration.allocator.free(path);
+                                try next.append(iteration.allocator, .{ .json = entry.value_ptr, .path = path });
+                            }
+                        },
+                        else => {},
+                    }
+                }
+
+                for (iteration.cursors.items) |*p| p.deinit(iteration.allocator);
+                iteration.cursors.deinit(iteration.allocator);
+                iteration.cursors = next;
+
                 try f.query(iteration);
             },
         }
+        dbg("[Selector] tag={s}, cursors after: {d}\n", .{ @tagName(self), iteration.cursors.items.len });
     }
 };
 
-/// Creates a Selector from a value. Usage:
-///
-///   sel(wildcard)        → .wildcard          (pass the `wildcard` sentinel: `pub const wildcard = {};`)
-///   sel("foo")           → .name("foo")        (string literal or []const u8)
-///   sel(1)               → .index(1)           (integer)
-///   sel(slice(1, 2, 3))  → .slice(1, 2, 3)    (use the `slice()` helper)
-///   sel(myFilter)        → .filter(myFilter)   (model.Filter value)
 pub fn sel(value: anytype) Selector {
     const T = @TypeOf(value);
     if (T == void) return .wildcard;
@@ -215,6 +274,7 @@ pub const Filter = union(enum) {
     }
 
     pub fn query(self: Filter, iteration: *Iter) anyerror!void {
+        dbg("[Filter] tag={s}, cursors before: {d}\n", .{ @tagName(self), iteration.cursors.items.len });
         switch (self) {
             .atom => |a| try a.query(iteration),
             .ands => |fs| {
@@ -243,6 +303,7 @@ pub const Filter = union(enum) {
                 iteration.cursors = next;
             },
         }
+        dbg("[Filter] tag={s}, cursors after: {d}\n", .{ @tagName(self), iteration.cursors.items.len });
     }
 };
 
@@ -286,6 +347,7 @@ pub const FilterAtom = union(enum) {
     }
 
     pub fn query(self: FilterAtom, iteration: *Iter) anyerror!void {
+        dbg("[FilterAtom] tag={s}, cursors before: {d}\n", .{ @tagName(self), iteration.cursors.items.len });
         switch (self) {
             .filter => |f| {
                 var passing = std.ArrayListUnmanaged(q.JsonPointer){};
@@ -301,6 +363,7 @@ pub const FilterAtom = union(enum) {
 
                     const survived = branch.cursors.items.len > 0;
                     const passes = if (f.not) !survived else survived;
+                    dbg("[FilterAtom.filter] path={s} survived={} not={} passes={}\n", .{ cursor.path, survived, f.not, passes });
                     if (passes) {
                         const duped = try iteration.allocator.dupe(u8, cursor.path);
                         errdefer iteration.allocator.free(duped);
@@ -326,6 +389,7 @@ pub const FilterAtom = union(enum) {
 
                     const exists = branch.cursors.items.len > 0;
                     const passes = if (t.not) !exists else exists;
+                    dbg("[FilterAtom.test_expr] path={s} exists={} not={} passes={}\n", .{ cursor.path, exists, t.not, passes });
                     if (passes) {
                         const duped = try iteration.allocator.dupe(u8, cursor.path);
                         errdefer iteration.allocator.free(duped);
@@ -347,7 +411,9 @@ pub const FilterAtom = union(enum) {
                 for (iteration.cursors.items) |cursor| {
                     var branch = try iteration.forkSingle(cursor);
                     defer branch.deinit();
-                    if (try c.evaluate(&branch)) {
+                    const result = try c.evaluate(&branch);
+                    dbg("[FilterAtom.compare] path={s} result={}\n", .{ cursor.path, result });
+                    if (result) {
                         const duped = try iteration.allocator.dupe(u8, cursor.path);
                         errdefer iteration.allocator.free(duped);
                         try passing.append(iteration.allocator, .{ .json = cursor.json, .path = duped });
@@ -359,6 +425,7 @@ pub const FilterAtom = union(enum) {
                 iteration.cursors = passing;
             },
         }
+        dbg("[FilterAtom] tag={s}, cursors after: {d}\n", .{ @tagName(self), iteration.cursors.items.len });
     }
 };
 
@@ -392,6 +459,7 @@ pub const Test = union(enum) {
         };
     }
     pub fn query(self: Test, iteration: *Iter) anyerror!void {
+        dbg("[Test] tag={s}, cursors before: {d}\n", .{ @tagName(self), iteration.cursors.items.len });
         switch (self) {
             .abs_query => |jpq| {
                 for (iteration.cursors.items) |*p| p.deinit(iteration.allocator);
@@ -399,18 +467,18 @@ pub const Test = union(enum) {
                 try jpq.query(iteration);
             },
             .rel_query => |segments| {
-                for (segments) |seg| {
-                    try seg.query(iteration);
-                }
+                for (segments) |seg| try seg.query(iteration);
             },
             .function => |f| {
                 const val = try f.evaluate(iteration);
+                dbg("[Test.function] evaluate result: {any}\n", .{val});
                 if (val == null) {
                     for (iteration.cursors.items) |*p| p.deinit(iteration.allocator);
                     iteration.cursors.clearRetainingCapacity();
                 }
             },
         }
+        dbg("[Test] tag={s}, cursors after: {d}\n", .{ @tagName(self), iteration.cursors.items.len });
     }
 };
 
@@ -462,14 +530,17 @@ pub const TestFunction = union(enum) {
     }
 
     pub fn evaluate(self: TestFunction, iter: *Iter) !?std.json.Value {
-        return switch (self) {
+        dbg("[TestFunction] evaluating tag={s}\n", .{@tagName(self)});
+        const result = switch (self) {
             .length => |v| try inner.queryLength(v.arg, iter),
-            .value => |v| try inner.queryValue(v.arg, iter),
-            .count => |v| try inner.queryCount(v.arg, iter),
+            .value  => |v| try inner.queryValue(v.arg, iter),
+            .count  => |v| try inner.queryCount(v.arg, iter),
             .search => |v| try inner.querySearch(v.lhs, v.rhs, iter),
-            .match => |v| try inner.queryMatch(v.lhs, v.rhs, iter),
+            .match  => |v| try inner.queryMatch(v.lhs, v.rhs, iter),
             .custom => |v| try inner.queryCustom(v.name, v.args, iter),
         };
+        dbg("[TestFunction] tag={s} result={any}\n", .{ @tagName(self), result });
+        return result;
     }
 };
 
@@ -583,15 +654,20 @@ pub const Comparison = union(enum) {
         const op = switch (self) {
             inline else => |v| v,
         };
-
-        const lhs = try op.lhs.evaluate(iter) orelse return false;
-        const rhs = try op.rhs.evaluate(iter) orelse return false;
-
+        const lhs = try op.lhs.evaluate(iter) orelse {
+            dbg("[Comparison.{s}] lhs is null\n", .{@tagName(self)});
+            return false;
+        };
+        const rhs = try op.rhs.evaluate(iter) orelse {
+            dbg("[Comparison.{s}] rhs is null\n", .{@tagName(self)});
+            return false;
+        };
+        dbg("[Comparison.{s}] lhs={any} rhs={any}\n", .{ @tagName(self), lhs, rhs });
         return switch (self) {
-            .eq => inner.jsonValueEql(lhs, rhs),
-            .ne => !inner.jsonValueEql(lhs, rhs),
-            .gt => (inner.jsonValueCmp(lhs, rhs) orelse return false) == .gt,
-            .lt => (inner.jsonValueCmp(lhs, rhs) orelse return false) == .lt,
+            .eq  => inner.jsonValueEql(lhs, rhs),
+            .ne  => !inner.jsonValueEql(lhs, rhs),
+            .gt  => (inner.jsonValueCmp(lhs, rhs) orelse return false) == .gt,
+            .lt  => (inner.jsonValueCmp(lhs, rhs) orelse return false) == .lt,
             .gte => (inner.jsonValueCmp(lhs, rhs) orelse return false) != .lt,
             .lte => (inner.jsonValueCmp(lhs, rhs) orelse return false) != .gt,
         };
@@ -638,18 +714,23 @@ pub const Comparable = union(enum) {
         };
     }
     pub fn evaluate(self: Comparable, iter: *Iter) !?std.json.Value {
-        return switch (self) {
+        dbg("[Comparable] tag={s}, cursors: {d}\n", .{ @tagName(self), iter.cursors.items.len });
+        const result = switch (self) {
             .lit => |l| l.toJsValue(),
             .function => |f| try f.evaluate(iter),
             .query => |sq| blk: {
                 var branch = try iter.fork();
                 defer branch.deinit();
                 try sq.query(&branch);
+                dbg("[Comparable.query] branch cursors after sq.query: {d}\n", .{branch.cursors.items.len});
                 break :blk if (branch.cursors.items.len == 1) branch.cursors.items[0].json.* else null;
             },
         };
+        dbg("[Comparable] tag={s} result={any}\n", .{ @tagName(self), result });
+        return result;
     }
 };
+
 pub fn cmp(value: anytype) Comparable {
     const T = @TypeOf(value);
     if (T == Literal) return .{ .lit = value };
@@ -685,6 +766,7 @@ pub const SingularQuery = union(enum) {
         return true;
     }
     pub fn query(self: SingularQuery, iter: *Iter) !void {
+        dbg("[SingularQuery] tag={s}, cursors before: {d}\n", .{ @tagName(self), iter.cursors.items.len });
         switch (self) {
             .root => |segs| {
                 for (iter.cursors.items) |*p| p.deinit(iter.allocator);
@@ -700,6 +782,7 @@ pub const SingularQuery = union(enum) {
                 }
             },
         }
+        dbg("[SingularQuery] tag={s}, cursors after: {d}\n", .{ @tagName(self), iter.cursors.items.len });
     }
 };
 
@@ -722,17 +805,18 @@ pub const SingularQuerySegment = union(enum) {
     }
 
     pub fn query(self: SingularQuerySegment, iter: *Iter) !void {
+        dbg("[SingularQuerySegment] tag={s}, cursors before: {d}\n", .{ @tagName(self), iter.cursors.items.len });
         switch (self) {
             .index => |i| try inner.querySingularQuerySegmentByIndex(i, iter),
-            .name => |n| try inner.querySingularQuerySegmentByName(n, iter),
+            .name => |n| {
+                dbg("[SingularQuerySegment.name] name={s}\n", .{n});
+                try inner.querySingularQuerySegmentByName(n, iter);
+            },
         }
+        dbg("[SingularQuerySegment] tag={s}, cursors after: {d}\n", .{ @tagName(self), iter.cursors.items.len });
     }
 };
 
-/// Creates a SingularQuerySegment from a value. Usage:
-///
-///   sqs(1)     → .index(1)   (integer)
-///   sqs("foo") → .name("foo") (string literal or []const u8)
 pub fn sqs(value: anytype) SingularQuerySegment {
     const T = @TypeOf(value);
     return switch (@typeInfo(T)) {
@@ -742,8 +826,8 @@ pub fn sqs(value: anytype) SingularQuerySegment {
     };
 }
 
-pub const MAX_INT: i64 = 9007199254740991; // 2^53 - 1, maximum safe integer in JavaScript
-pub const MIN_INT: i64 = -9007199254740991; // -(2^53 - 1), minimum safe integer in JavaScript
+pub const MAX_INT: i64 = 9007199254740991;
+pub const MIN_INT: i64 = -9007199254740991;
 
 pub fn isValidInt(value: i64) bool {
     return value >= MIN_INT and value <= MAX_INT;
