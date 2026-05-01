@@ -578,7 +578,15 @@ pub const JPQueryParser = struct {
             if (!std.ascii.isDigit(c)) break;
             try self.move(1);
         }
+
         const s = self.input[start..self.pos];
+
+        if (!is_neg and s.len > 1 and s[0] == '0') {
+            self.pos = start;
+            return self.fail("Leading zero is not valid in slice/index");
+        }
+
+
         const val = std.fmt.parseInt(i64, s, 10) catch return self.fail("Invalid integer");
         if (!model.isValidInt(val)) return self.fail("Integer exceeds safe JavaScript range");
         return val;

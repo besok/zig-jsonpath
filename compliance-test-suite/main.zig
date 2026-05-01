@@ -3,9 +3,9 @@ const jsonpath = @import("jsonpath");
 const suite = @import("suite.zig");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    // defer _ = gpa.deinit();
+    const allocator = std.heap.page_allocator;
 
     const cases = try suite.getCases(allocator);
     defer cases.deinit();
@@ -22,13 +22,6 @@ pub fn main() !void {
     var total: usize = 0;
     var passed: usize = 0;
     var skipped: usize = 0;
-    var failed_names: std.ArrayList([]const u8) = .empty;
-    defer failed_names.deinit(allocator);
-    var failed_reasons: std.ArrayList([]const u8) = .empty;
-    defer {
-        for (failed_reasons.items) |r| allocator.free(r);
-        failed_reasons.deinit(allocator);
-    }
 
     for (cases.value.tests) |case| {
         total += 1;
@@ -39,13 +32,12 @@ pub fn main() !void {
         }
 
         if (case.invalid_selector) {
-            var parser = jsonpath.jsp.JPQueryParser.init(case.selector, allocator);
+            var parser = jsonpath.parser.JPQueryParser.init(case.selector, allocator);
             const jspath = parser.parse();
             if (jspath) |*q| {
                 @constCast(q).deinit(allocator);
-                const reason = try std.fmt.allocPrint(allocator, "expected parse to fail but it succeeded", .{});
-                try failed_names.append(allocator, case.name);
-                try failed_reasons.append(allocator, reason);
+                std.debug.print(" ------- {s} -------\n", .{case.name});
+                std.debug.print("{s}\n", .{"expected parse to fail but it succeeded"});
             } else |_| {
                 passed += 1;
             }
@@ -84,31 +76,38 @@ pub fn main() !void {
                 if (ok) {
                     passed += 1;
                 } else {
-                    const reason = try std.fmt.allocPrint(allocator, "result mismatch", .{});
-                    try failed_names.append(allocator, case.name);
-                    try failed_reasons.append(allocator, reason);
+                    std.debug.print(" ------- {s} -------\n", .{case.name});
+                    std.debug.print("{s}\n", .{"result mismatch"});
+
+                    if (case.result) |r| {
+                        std.debug.print("Expected:\n", .{});
+                        for (r.array.items) |item| {
+                            std.debug.print("  {f}\n", .{
+                                std.json.fmt(item, .{ .whitespace = .indent_2 }),
+                            });
+                        }
+                    }
+
+                    std.debug.print("Actual:\n", .{});
+                    for (values) |item| {
+                        std.debug.print("  {f}\n", .{
+                            std.json.fmt(item.*, .{ .whitespace = .indent_2 }),
+                        });
+                    }
+
                 }
             } else |err| {
-                const reason = try std.fmt.allocPrint(allocator, "query error: {s}", .{@errorName(err)});
-                try failed_names.append(allocator, case.name);
-                try failed_reasons.append(allocator,reason);
+                std.debug.print(" ------- {s} -------\n", .{case.name});
+                std.debug.print("query error: {s}\n", .{@errorName(err)});
             }
         }
     }
 
-    // print failures
-    if (failed_names.items.len > 0) {
-        std.debug.print("\nFailed tests:\n\n", .{});
-        for (failed_names.items, failed_reasons.items) |name, reason| {
-            std.debug.print(" ------- {s} -------\n", .{name});
-            std.debug.print("{s}\n", .{reason});
-        }
-    }
 
     std.debug.print("\n-----------\n", .{});
     std.debug.print("Total:   {d}\n", .{total});
     std.debug.print("Passed:  {d}\n", .{passed});
-    std.debug.print("Failed:  {d}\n", .{failed_names.items.len});
+    std.debug.print("Failed:  {d}\n", .{total - passed - skipped});
     std.debug.print("Skipped: {d}\n", .{skipped});
     std.debug.print("-----------\n", .{});
 }

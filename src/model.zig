@@ -20,6 +20,17 @@ fn debugCursors(label: []const u8, iter: *Iter) void {
     }
 }
 
+fn debugJsValues(a: std.json.Value, b: std.json.Value) void {
+    if (!debug_query) return;
+    std.debug.print("lhs:\n{f}\n", .{
+        std.json.fmt(a, .{ .whitespace = .indent_2 }),
+    });
+
+    std.debug.print("rhs:\n{f}\n", .{
+        std.json.fmt(b, .{ .whitespace = .indent_2 }),
+    });
+}
+
 fn debugCursorsAt(iter: *Iter) void {
     debugCursors("CURSORS", iter);
 }
@@ -148,7 +159,6 @@ pub const Selector = union(enum) {
 
     pub fn query(self: Selector, iteration: *Iter) !void {
         dbg("[Selector] tag={s}, cursors before: {d}\n", .{ @tagName(self), iteration.cursors.items.len });
-        debugCursorsAt(iteration);
         switch (self) {
             .wildcard => try inner.queryWildcard(iteration),
             .name => |n| {
@@ -412,7 +422,7 @@ pub const FilterAtom = union(enum) {
                     var branch = try iteration.forkSingle(cursor);
                     defer branch.deinit();
                     const result = try c.evaluate(&branch);
-                    dbg("[FilterAtom.compare] path={s} result={}\n", .{ cursor.path, result });
+                    dbg("[FilterAtom.compare] path={s}\n", .{ cursor.path });
                     if (result) {
                         const duped = try iteration.allocator.dupe(u8, cursor.path);
                         errdefer iteration.allocator.free(duped);
@@ -539,7 +549,7 @@ pub const TestFunction = union(enum) {
             .match  => |v| try inner.queryMatch(v.lhs, v.rhs, iter),
             .custom => |v| try inner.queryCustom(v.name, v.args, iter),
         };
-        dbg("[TestFunction] tag={s} result={any}\n", .{ @tagName(self), result });
+        dbg("[TestFunction] tag={s}\n", .{ @tagName(self), });
         return result;
     }
 };
@@ -662,7 +672,7 @@ pub const Comparison = union(enum) {
             dbg("[Comparison.{s}] rhs is null\n", .{@tagName(self)});
             return false;
         };
-        dbg("[Comparison.{s}] lhs={any} rhs={any}\n", .{ @tagName(self), lhs, rhs });
+        dbg("[Comparison.{s}]\n", .{ @tagName(self)});
         return switch (self) {
             .eq  => inner.jsonValueEql(lhs, rhs),
             .ne  => !inner.jsonValueEql(lhs, rhs),
@@ -726,7 +736,7 @@ pub const Comparable = union(enum) {
                 break :blk if (branch.cursors.items.len == 1) branch.cursors.items[0].json.* else null;
             },
         };
-        dbg("[Comparable] tag={s} result={any}\n", .{ @tagName(self), result });
+        dbg("[Comparable] tag={s}\n", .{ @tagName(self)});
         return result;
     }
 };

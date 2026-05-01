@@ -344,21 +344,85 @@ fn lengthOfValue(val: std.json.Value) ?std.json.Value {
 
 pub fn jsonValueEql(a: std.json.Value, b: std.json.Value) bool {
     return switch (a) {
-        .null    => b == .null,
-        .bool    => |v| switch (b) { .bool => |w| v == w, else => false },
+        .null => b == .null,
+
+        .bool => |v| switch (b) {
+            .bool => |w| v == w,
+            else => false,
+        },
+
         .integer => |v| switch (b) {
             .integer => |w| v == w,
-            .float   => |w| @as(f64, @floatFromInt(v)) == w,
-            else     => false,
+            .float => |w| @as(f64, @floatFromInt(v)) == w,
+            .number_string => |w| blk: {
+                const parsed = std.fmt.parseInt(i64, w, 10) catch break :blk false;
+                break :blk v == parsed;
+            },
+            else => false,
         },
-        .float   => |v| switch (b) {
-            .float   => |w| @abs(v - w) < 0.0001,
+
+        .float => |v| switch (b) {
+            .float => |w| @abs(v - w) < 0.0001,
             .integer => |w| v == @as(f64, @floatFromInt(w)),
-            else     => false,
+            .number_string => |w| blk: {
+                const parsed = std.fmt.parseFloat(f64, w) catch break :blk false;
+                break :blk @abs(v - parsed) < 0.0001;
+            },
+            else => false,
         },
-        .string  => |v| switch (b) { .string => |w| std.mem.eql(u8, v, w), else => false },
-        // arrays/objects not comparable per RFC 9535
-        else     => false,
+
+        .string => |v| switch (b) {
+            .string => |w| std.mem.eql(u8, v, w),
+            else => false,
+        },
+
+        .number_string => |v| switch (b) {
+            .number_string => |w| std.mem.eql(u8, v, w),
+
+            .integer => |w| blk: {
+                const parsed = std.fmt.parseInt(i64, v, 10) catch break :blk false;
+                break :blk parsed == w;
+            },
+
+            .float => |w| blk: {
+                const parsed = std.fmt.parseFloat(f64, v) catch break :blk false;
+                break :blk @abs(parsed - w) < 0.0001;
+            },
+
+            else => false,
+        },
+
+        .array => |arr_a| switch (b) {
+            .array => |arr_b| blk: {
+                if (arr_a.items.len != arr_b.items.len) break :blk false;
+
+                for (arr_a.items, arr_b.items) |item_a, item_b| {
+                    if (!jsonValueEql(item_a, item_b)) break :blk false;
+                }
+
+                break :blk true;
+            },
+            else => false,
+        },
+
+        .object => |obj_a| switch (b) {
+            .object => |obj_b| blk: {
+                if (obj_a.count() != obj_b.count()) break :blk false;
+
+                var it = obj_a.iterator();
+                while (it.next()) |entry| {
+                    const key = entry.key_ptr.*;
+                    const val_a = entry.value_ptr.*;
+
+                    const val_b = obj_b.get(key) orelse break :blk false;
+
+                    if (!jsonValueEql(val_a, val_b)) break :blk false;
+                }
+
+                break :blk true;
+            },
+            else => false,
+        },
     };
 }
 

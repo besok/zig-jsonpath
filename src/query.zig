@@ -24,16 +24,15 @@ pub const JsonPathResult = struct {
 };
 
 pub fn perform(
-    parsed_json: std.json.Parsed(std.json.Value),
+    parsed_json: *std.json.Parsed(std.json.Value),
     path: *const model.JPQuery,
     allocator: std.mem.Allocator,
 ) !JsonPathResult {
-    var json = parsed_json;
-    var init_query = JsonPathIter.init(&json.value, allocator);
+    var init_query = JsonPathIter.init(&parsed_json.value, allocator);
     errdefer init_query.deinit();
 
     try query(path, &init_query);
-    return init_query.toResult(parsed_json);
+    return init_query.toResult(parsed_json.*);
 }
 
 pub const JsonPathIter = struct {

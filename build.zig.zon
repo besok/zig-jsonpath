@@ -16,6 +16,8 @@
         "build.zig",
         "build.zig.zon",
         "src",
+        "test",
+        "compliance-test-suite",
         "LICENSE",
         "README.md",
     },

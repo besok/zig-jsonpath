@@ -1,8 +1,11 @@
 const std = @import("std");
-const model = @import("model.zig");
-const query = @import("query.zig");
+const jsonpath = @import("zig_jsonpath");
+
+const parser = jsonpath.parser;
+const model = jsonpath.model;
+const query = jsonpath.query;
 const Iter = query.JsonPathIter;
-const parser = @import("parser.zig");
+
 
 pub const TestJson = struct {
     parsed: std.json.Parsed(std.json.Value),
@@ -933,6 +936,49 @@ test "compliance basic root" {
 
     var expected = TestIter.init(&.{
         ptr(tjson.value(), "$"),
+    });
+
+    try expected.shouldEql(&iter);
+}
+
+test "compliance filter absolute equals self" {
+    var tjson = try TestJson.init(
+        \\[1,null,true,{"a":"b"},[false]]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?$==$]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp_1 = try TestJson.init("1");
+    defer exp_1.deinit(std.testing.allocator);
+
+    var exp_null = try TestJson.init("null");
+    defer exp_null.deinit(std.testing.allocator);
+
+    var exp_true = try TestJson.init("true");
+    defer exp_true.deinit(std.testing.allocator);
+
+    var exp_obj = try TestJson.init(
+        \\{"a":"b"}
+    );
+    defer exp_obj.deinit(std.testing.allocator);
+
+    var exp_arr = try TestJson.init(
+        \\[false]
+    );
+    defer exp_arr.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp_1.value(), "$[0]"),
+        ptr(exp_null.value(), "$[1]"),
+        ptr(exp_true.value(), "$[2]"),
+        ptr(exp_obj.value(), "$[3]"),
+        ptr(exp_arr.value(), "$[4]"),
     });
 
     try expected.shouldEql(&iter);

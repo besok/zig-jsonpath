@@ -1,6 +1,8 @@
 const std = @import("std");
-const JPQueryParser = @import("parser.zig").JPQueryParser;
-const model = @import("model.zig");
+const jsonpath = @import("zig_jsonpath");
+const parser = jsonpath.parser;
+const JPQueryParser = parser.JPQueryParser;
+const model = jsonpath.model;
 const lit = model.lit;
 const slice = model.slice;
 const sel = model.sel;
@@ -160,8 +162,8 @@ test "filter atom" {
         JPQueryParser.parseFilter,
     );
 
-    var seg_a = [_]model.SingularQuerySegment{ sqs("a") };
-    var seg_b = [_]model.SingularQuerySegment{ sqs("b") };
+    var seg_a = [_]model.SingularQuerySegment{sqs("a")};
+    var seg_b = [_]model.SingularQuerySegment{sqs("b")};
     var ors = [_]model.Filter{
         fCmp(eq(cmp(model.SingularQuery{ .current = &seg_a }), cmp(lit(1)))),
         fCmp(eq(cmp(model.SingularQuery{ .current = &seg_b }), cmp(lit(2)))),
@@ -195,11 +197,11 @@ test "function expr" {
         model.TestFunction{ .search = .{
             .lhs = .{ .test_arg = rel_empty },
             .rhs = .{ .lit = lit("abc") },
-        }},
+        } },
         JPQueryParser.parseFunctionExpr,
     );
 
-    var seg_a = [_]model.Segment{ .{ .selector = .{ .name = "a" } } };
+    var seg_a = [_]model.Segment{.{ .selector = .{ .name = "a" } }};
     const rel_a = try std.testing.allocator.create(model.Test);
     defer std.testing.allocator.destroy(rel_a);
     rel_a.* = .{ .rel_query = &seg_a };
@@ -221,7 +223,7 @@ test "full query" {
     const atom = model.Filter{ .atom = .{ .compare = .{ .gt = .{
         .lhs = cmp(model.SingularQuery{ .current = &segs_ab }),
         .rhs = cmp(lit(1)),
-    }}}};
+    } } } };
     var segments = [_]model.Segment{
         .{ .selector = .{ .name = "a" } },
         .{ .selector = .{ .name = "b" } },

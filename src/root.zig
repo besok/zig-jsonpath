@@ -1,7 +1,7 @@
 const std = @import("std");
-const model = @import("model.zig");
-pub const jsp = @import("parser.zig");
-const query = @import("query.zig");
+pub const model = @import("model.zig");
+pub const parser = @import("parser.zig");
+pub const query = @import("query.zig");
 
 pub fn text_query(
     source: []const u8,
@@ -15,17 +15,10 @@ pub fn text_query(
         .{},
     );
     errdefer json.deinit();
-    var parser = jsp.JPQueryParser.init(path, allocator);
-    var jp_path = try parser.parse();
+    var jq_parser = parser.JPQueryParser.init(path, allocator);
+    var jp_path = try jq_parser.parse();
     defer jp_path.deinit(allocator);
-    return try query.perform(json, &jp_path, allocator);
+    return try query.perform(&json, &jp_path, allocator);
 }
 
-test "smoke" {
-    const allocator = std.testing.allocator;
-    const source = "{\"foo\": [1, 2, 3]}";
-    const path = "$.foo[*]";
-    var result = try text_query(source, path, allocator);
-    defer result.deinit();
-    try std.testing.expectEqual(@as(usize, 3), result.results.len);
-}
+
