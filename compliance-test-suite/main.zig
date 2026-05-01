@@ -13,92 +13,155 @@ pub fn main() !void {
     const filtered_cases = try suite.getCaseFilters(allocator);
     defer filtered_cases.deinit();
 
-    var string_set = std.StringHashMap(suite.CaseFilter).init(allocator);
-    defer string_set.deinit();
-
+    var skipped_set = std.StringHashMap(void).init(allocator);
+    defer skipped_set.deinit();
     for (filtered_cases.value) |case| {
-        try string_set.put(case.name, case);
+        try skipped_set.put(case.name, {});
     }
+
     var total: usize = 0;
-    var successfull_cases: usize = 0;
-    var skipped_cases: usize = 0;
-    var failed_cases = std.array_list.Managed([]const u8).init(allocator);
-    defer failed_cases.deinit();
+    var passed: usize = 0;
+    var skipped: usize = 0;
+    var failed_names: std.ArrayList([]const u8) = .empty;
+    defer failed_names.deinit(allocator);
+    var failed_reasons: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (failed_reasons.items) |r| allocator.free(r);
+        failed_reasons.deinit(allocator);
+    }
 
     for (cases.value.tests) |case| {
         total += 1;
-        if (string_set.get(case.name)) |filter| {
-            std.debug.print("Filter {f}\n", .{filter});
-            skipped_cases += 1;
-        } else {
-            if (case.invalid_selector) {
-                var parser = jsonpath.jsp.JPQueryParser.init(case.selector, allocator);
-                const jspath = parser.parse();
-                if (jspath) |*q| {
-                    @constCast(q).deinit(allocator);
-                    try failed_cases.append(case.name);
-                } else |_| {
-                    successfull_cases += 1;
-                }
-            } else {
-                const v = jsonpath.text_query(case.name, case.name, allocator);
-                if (v) |value| {
-                    var res = value;
-                    defer res.deinit();
-                    const results = res.results;
-                    const values = try allocator.alloc(*std.json.Value, results.len);
-                    defer allocator.free(values);
-                    for (results, 0..) |jp, i| {
-                        values[i] = jp.json;
-                    }
-                    if (case.result) |r| {
-                        const items = r.array.items;
 
-                        if (compareValueSlices(items, values)) {
-                            successfull_cases += 1;
-                        } else {
-                            try failed_cases.append(case.name);
-                        }
-                    } else if (case.results) |rs| {
-                        var checked = false;
-                        const items = rs.array.items;
-                        for (items) |item| {
-                            const elems = item.array.items;
-                            if (compareValueSlices(elems, values)) {
-                                successfull_cases += 1;
-                                checked = true;
-                                break;
-                            }
-                        }
-                        if (!checked) {
-                            try failed_cases.append(case.name);
+        if (skipped_set.contains(case.name)) {
+            skipped += 1;
+            continue;
+        }
+
+        if (case.invalid_selector) {
+            var parser = jsonpath.jsp.JPQueryParser.init(case.selector, allocator);
+            const jspath = parser.parse();
+            if (jspath) |*q| {
+                @constCast(q).deinit(allocator);
+                const reason = try std.fmt.allocPrint(allocator, "expected parse to fail but it succeeded", .{});
+                try failed_names.append(allocator, case.name);
+                try failed_reasons.append(allocator, reason);
+            } else |_| {
+                passed += 1;
+            }
+        } else {
+            const source = if (case.document) |doc|
+                try jsonValueToSource(allocator, doc)
+            else
+                try allocator.dupe(u8, "null");
+
+            defer allocator.free(source);
+
+            const v = jsonpath.text_query(source, case.selector, allocator);
+            if (v) |value| {
+                var res = value;
+                defer res.deinit();
+                const results = res.results;
+                const values = try allocator.alloc(*std.json.Value, results.len);
+                defer allocator.free(values);
+                for (results, 0..) |jp, i| {
+                    values[i] = jp.json;
+                }
+
+                const ok = if (case.result) |r|
+                    compareValueSlices(r.array.items, values)
+                else if (case.results) |rs| blk: {
+                    var any_match = false;
+                    for (rs.array.items) |item| {
+                        if (compareValueSlices(item.array.items, values)) {
+                            any_match = true;
+                            break;
                         }
                     }
-                } else |_| {
-                    try failed_cases.append(case.name);
+                    break :blk any_match;
+                } else false;
+
+                if (ok) {
+                    passed += 1;
+                } else {
+                    const reason = try std.fmt.allocPrint(allocator, "result mismatch", .{});
+                    try failed_names.append(allocator, case.name);
+                    try failed_reasons.append(allocator, reason);
                 }
+            } else |err| {
+                const reason = try std.fmt.allocPrint(allocator, "query error: {s}", .{@errorName(err)});
+                try failed_names.append(allocator, case.name);
+                try failed_reasons.append(allocator,reason);
             }
         }
     }
 
-    std.debug.print("-----------\n", .{});
-    std.debug.print("Total:       {d}\n", .{total});
-    std.debug.print("Successfull: {d}\n", .{successfull_cases});
-    std.debug.print("Failed:      {d}\n", .{failed_cases.items.len});
-    std.debug.print("Skipped:     {d}\n", .{skipped_cases});
-    std.debug.print("-----------\n", .{});
-
-    // try std.testing.expectEqual( 0, failed_cases.items.len);
-}
-
-fn compareValueSlices(a: []const std.json.Value, b: []const *const std.json.Value) bool {
-    if (a.len != b.len) return false;
-
-    for (a, b) |val_a, ptr_b| {
-        if (!std.meta.eql(val_a, ptr_b.*)) {
-            return false;
+    // print failures
+    if (failed_names.items.len > 0) {
+        std.debug.print("\nFailed tests:\n\n", .{});
+        for (failed_names.items, failed_reasons.items) |name, reason| {
+            std.debug.print(" ------- {s} -------\n", .{name});
+            std.debug.print("{s}\n", .{reason});
         }
     }
 
+    std.debug.print("\n-----------\n", .{});
+    std.debug.print("Total:   {d}\n", .{total});
+    std.debug.print("Passed:  {d}\n", .{passed});
+    std.debug.print("Failed:  {d}\n", .{failed_names.items.len});
+    std.debug.print("Skipped: {d}\n", .{skipped});
+    std.debug.print("-----------\n", .{});
+}
+
+fn compareValueSlices(a: []const std.json.Value, b: []const *std.json.Value) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |val_a, ptr_b| {
+        if (!jsonValueEql(val_a, ptr_b.*)) return false;
+    }
     return true;
+}
+
+fn jsonValueEql(a: std.json.Value, b: std.json.Value) bool {
+    if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
+    return switch (a) {
+        .null => true,
+        .bool => |v| v == b.bool,
+        .integer => |v| v == b.integer,
+        .float => |v| @abs(v - b.float) < 0.0001,
+        .string => |v| std.mem.eql(u8, v, b.string),
+        .number_string => |v| std.mem.eql(u8, v, b.number_string),
+        .array => |v| blk: {
+            if (v.items.len != b.array.items.len) break :blk false;
+            for (v.items, b.array.items) |x, y| {
+                if (!jsonValueEql(x, y)) break :blk false;
+            }
+            break :blk true;
+        },
+        .object => |v| blk: {
+            if (v.count() != b.object.count()) break :blk false;
+            var it = v.iterator();
+            while (it.next()) |entry| {
+                const bval = b.object.get(entry.key_ptr.*) orelse break :blk false;
+                if (!jsonValueEql(entry.value_ptr.*, bval)) break :blk false;
+            }
+            break :blk true;
+        },
+    };
+}
+
+fn jsonValueToSource(
+    allocator: std.mem.Allocator,
+    value: std.json.Value,
+) ![]u8 {
+    var out = std.Io.Writer.Allocating.init(allocator);
+    defer out.deinit();
+
+    var stringifier: std.json.Stringify = .{
+        .writer = &out.writer,
+        .options = .{},
+    };
+
+    try stringifier.write(value);
+
+    return try out.toOwnedSlice();
 }

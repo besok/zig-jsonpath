@@ -917,3 +917,23 @@ test "filter count function" {
     var expected = TestIter.init(&.{ptr(exp.value(), "$[0]")});
     try expected.shouldEql(&iter);
 }
+
+test "compliance basic root" {
+    var tjson = try TestJson.init(
+        \\["first","second"]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var expected = TestIter.init(&.{
+        ptr(tjson.value(), "$"),
+    });
+
+    try expected.shouldEql(&iter);
+}
