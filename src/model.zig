@@ -3,7 +3,7 @@ const q = @import("query.zig");
 const Iter = q.JsonPathIter;
 const inner = @import("model_query.zig");
 
-const debug_query = false;
+const debug_query = @import("build_options").debug_query;
 
 inline fn dbg(comptime fmt: []const u8, args: anytype) void {
     if (debug_query) std.debug.print(fmt, args);
@@ -422,7 +422,7 @@ pub const FilterAtom = union(enum) {
                     var branch = try iteration.forkSingle(cursor);
                     defer branch.deinit();
                     const result = try c.evaluate(&branch);
-                    dbg("[FilterAtom.compare] path={s}\n", .{ cursor.path });
+                    dbg("[FilterAtom.compare] path={s}\n", .{cursor.path});
                     if (result) {
                         const duped = try iteration.allocator.dupe(u8, cursor.path);
                         errdefer iteration.allocator.free(duped);
@@ -482,7 +482,12 @@ pub const Test = union(enum) {
             .function => |f| {
                 const val = try f.evaluate(iteration);
                 dbg("[Test.function] evaluate result: {any}\n", .{val});
-                if (val == null) {
+                const passes = if (val) |v| switch (v) {
+                    .bool => |b| b,
+                    else => true,
+                } else false;
+
+                if (!passes) {
                     for (iteration.cursors.items) |*p| p.deinit(iteration.allocator);
                     iteration.cursors.clearRetainingCapacity();
                 }
@@ -543,13 +548,15 @@ pub const TestFunction = union(enum) {
         dbg("[TestFunction] evaluating tag={s}\n", .{@tagName(self)});
         const result = switch (self) {
             .length => |v| try inner.queryLength(v.arg, iter),
-            .value  => |v| try inner.queryValue(v.arg, iter),
-            .count  => |v| try inner.queryCount(v.arg, iter),
+            .value => |v| try inner.queryValue(v.arg, iter),
+            .count => |v| try inner.queryCount(v.arg, iter),
             .search => |v| try inner.querySearch(v.lhs, v.rhs, iter),
-            .match  => |v| try inner.queryMatch(v.lhs, v.rhs, iter),
+            .match => |v| try inner.queryMatch(v.lhs, v.rhs, iter),
             .custom => |v| try inner.queryCustom(v.name, v.args, iter),
         };
-        dbg("[TestFunction] tag={s}\n", .{ @tagName(self), });
+        dbg("[TestFunction] tag={s}\n", .{
+            @tagName(self),
+        });
         return result;
     }
 };
@@ -672,12 +679,12 @@ pub const Comparison = union(enum) {
             dbg("[Comparison.{s}] rhs is null\n", .{@tagName(self)});
             return false;
         };
-        dbg("[Comparison.{s}]\n", .{ @tagName(self)});
+        dbg("[Comparison.{s}]\n", .{@tagName(self)});
         return switch (self) {
-            .eq  => inner.jsonValueEql(lhs, rhs),
-            .ne  => !inner.jsonValueEql(lhs, rhs),
-            .gt  => (inner.jsonValueCmp(lhs, rhs) orelse return false) == .gt,
-            .lt  => (inner.jsonValueCmp(lhs, rhs) orelse return false) == .lt,
+            .eq => inner.jsonValueEql(lhs, rhs),
+            .ne => !inner.jsonValueEql(lhs, rhs),
+            .gt => (inner.jsonValueCmp(lhs, rhs) orelse return false) == .gt,
+            .lt => (inner.jsonValueCmp(lhs, rhs) orelse return false) == .lt,
             .gte => (inner.jsonValueCmp(lhs, rhs) orelse return false) != .lt,
             .lte => (inner.jsonValueCmp(lhs, rhs) orelse return false) != .gt,
         };
@@ -736,7 +743,7 @@ pub const Comparable = union(enum) {
                 break :blk if (branch.cursors.items.len == 1) branch.cursors.items[0].json.* else null;
             },
         };
-        dbg("[Comparable] tag={s}\n", .{ @tagName(self)});
+        dbg("[Comparable] tag={s}\n", .{@tagName(self)});
         return result;
     }
 };

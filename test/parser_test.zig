@@ -30,7 +30,12 @@ fn expectGood(
 fn expectFail(input: []const u8, comptime parseFn: anytype) !void {
     var p = JPQueryParser.init(input, std.testing.allocator);
     const res = parseFn(&p);
-    try std.testing.expectError(error.UnexpectedChar, res);
+    if (res) |*q| {
+        @constCast(q).deinit(std.testing.allocator);
+        return error.TestExpectedError;
+    } else |err| {
+        try std.testing.expectEqual(error.UnexpectedChar, err);
+    }
 }
 
 pub const SingularQuerySegments = struct {
@@ -234,4 +239,8 @@ test "full query" {
         model.JPQuery{ .segments = &segments },
         JPQueryParser.parse,
     );
+}
+
+test "name selector double quotes invalid escaped single quote" {
+    try expectFail("$[\"\\'\"]", JPQueryParser.parse);
 }

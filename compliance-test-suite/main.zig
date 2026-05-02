@@ -5,6 +5,7 @@ const suite = @import("suite.zig");
 pub fn main() !void {
     // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     // defer _ = gpa.deinit();
+    //  const allocator = gpa.allocator();
     const allocator = std.heap.page_allocator;
 
     const cases = try suite.getCases(allocator);

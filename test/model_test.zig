@@ -983,3 +983,157 @@ test "compliance filter absolute equals self" {
 
     try expected.shouldEql(&iter);
 }
+
+test "filter match function basic" {
+    var tjson = try TestJson.init(
+        \\[{"name":"foobar"},{"name":"foo"},{"name":"bar"}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?match(@.name, 'foo.*')]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp1 = try TestJson.init("{\"name\":\"foobar\"}");
+    defer exp1.deinit(std.testing.allocator);
+    var exp2 = try TestJson.init("{\"name\":\"foo\"}");
+    defer exp2.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp1.value(), "$[0]"),
+        ptr(exp2.value(), "$[1]"),
+    });
+    try expected.shouldEql(&iter);
+}
+
+test "filter match function full string only" {
+    // match() anchors the whole string — 'foo' should NOT match 'foobar'
+    var tjson = try TestJson.init(
+        \\[{"name":"foobar"},{"name":"foo"},{"name":"bar"}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?match(@.name, 'foo')]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp = try TestJson.init("{\"name\":\"foo\"}");
+    defer exp.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{ptr(exp.value(), "$[1]")});
+    try expected.shouldEql(&iter);
+}
+
+test "filter search function substring" {
+    // search() matches anywhere in the string
+    var tjson = try TestJson.init(
+        \\[{"name":"foobar"},{"name":"foo"},{"name":"bar"},{"name":"baz"}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?search(@.name, 'foo')]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp1 = try TestJson.init("{\"name\":\"foobar\"}");
+    defer exp1.deinit(std.testing.allocator);
+    var exp2 = try TestJson.init("{\"name\":\"foo\"}");
+    defer exp2.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp1.value(), "$[0]"),
+        ptr(exp2.value(), "$[1]"),
+    });
+    try expected.shouldEql(&iter);
+}
+
+test "filter search function no match" {
+    var tjson = try TestJson.init(
+        \\[{"name":"bar"},{"name":"baz"}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?search(@.name, 'foo')]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var expected = TestIter.init(&.{});
+    try expected.shouldEql(&iter);
+}
+
+test "filter match non-string returns nothing" {
+    var tjson = try TestJson.init(
+        \\[{"name":1},{"name":"foo"}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?match(@.name, 'foo')]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp = try TestJson.init("{\"name\":\"foo\"}");
+    defer exp.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{ptr(exp.value(), "$[1]")});
+    try expected.shouldEql(&iter);
+}
+
+test "filter search with pattern mid string" {
+    var tjson = try TestJson.init(
+        \\[{"val":"abcdef"},{"val":"xyzabc"},{"val":"xyz"}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?search(@.val, 'abc')]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp1 = try TestJson.init("{\"val\":\"abcdef\"}");
+    defer exp1.deinit(std.testing.allocator);
+    var exp2 = try TestJson.init("{\"val\":\"xyzabc\"}");
+    defer exp2.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp1.value(), "$[0]"),
+        ptr(exp2.value(), "$[1]"),
+    });
+    try expected.shouldEql(&iter);
+}
+
+test "filter match with digit pattern" {
+    var tjson = try TestJson.init(
+        \\[{"code":"abc123"},{"code":"123"},{"code":"abc"}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?match(@.code, '[0-9]+')]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp = try TestJson.init("{\"code\":\"123\"}");
+    defer exp.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{ptr(exp.value(), "$[1]")});
+    try expected.shouldEql(&iter);
+}

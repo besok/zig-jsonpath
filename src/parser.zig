@@ -144,8 +144,15 @@ pub const JPQueryParser = struct {
                     't' => '\t',
                     '/' => '/',
                     '\\' => '\\',
-                    '"' => '"',
-                    '\'' => '\'',
+                    '"' => blk: {
+                        if (quote == '"') break :blk '"';
+                        return self.fail("Invalid Escape Sequence");
+                    },
+
+                    '\'' => blk: {
+                        if (quote == '\'') break :blk '\'';
+                        return self.fail("Invalid Escape Sequence");
+                    },
                     'u' => {
                         const codepoint = try self.parseHexChar();
                         try self.appendUtf8(&buf, codepoint);

@@ -1,5 +1,5 @@
 const std = @import("std");
-
+const mvzr = @import("mvzr");
 const model = @import("model.zig");
 const q = @import("query.zig");
 
@@ -319,11 +319,19 @@ pub fn queryRegex(lhs: model.FnArg, rhs: model.FnArg, substr: bool, iter: *q.Jso
     return .{ .bool = matched };
 }
 pub fn matchRegex(input: []const u8, pattern: []const u8, substr: bool, allocator: std.mem.Allocator) !bool {
-    _ = input;
-    _ = pattern;
-    _ = substr;
-    _ = allocator;
-    return false;
+
+    const prepared = if (substr)
+        try allocator.dupe(u8, pattern)
+    else
+        try std.fmt.allocPrint(allocator, "^{s}$", .{pattern});
+
+    defer allocator.free(prepared);
+
+    const re = mvzr.compile(prepared) orelse return false;
+
+    const result = re.isMatch(input);
+    // std.debug.print("[matchRegex] input={s} prepared={s} result={}\n", .{ input, prepared, result });
+    return result;
 }
 
 pub fn queryCustom(name: []const u8, args: []model.FnArg, iter: *q.JsonPathIter) !?std.json.Value {
@@ -430,20 +438,20 @@ pub fn jsonValueCmp(a: std.json.Value, b: std.json.Value) ?std.math.Order {
     return switch (a) {
         .integer => |v| switch (b) {
             .integer => std.math.order(v, b.integer),
-            .float   => std.math.order(@as(f64, @floatFromInt(v)), b.float),
-            else     => null, // incomparable types
+            .float => std.math.order(@as(f64, @floatFromInt(v)), b.float),
+            else => null, // incomparable types
         },
-        .float   => |v| switch (b) {
-            .float   => std.math.order(v, b.float),
+        .float => |v| switch (b) {
+            .float => std.math.order(v, b.float),
             .integer => std.math.order(v, @as(f64, @floatFromInt(b.integer))),
-            else     => null,
+            else => null,
         },
-        .string  => |v| switch (b) {
-            .string  => std.mem.order(u8, v, b.string),
-            else     => null,
+        .string => |v| switch (b) {
+            .string => std.mem.order(u8, v, b.string),
+            else => null,
         },
         // null/bool/array/object are not ordered per RFC 9535
-        else     => null,
+        else => null,
     };
 }
 
