@@ -61,12 +61,17 @@ pub const JPQueryParser = struct {
     }
 
     pub fn parse(self: *JPQueryParser) !model.JPQuery {
+        // no trailing whitespaces
+        if (self.input.len > 0 and std.ascii.isWhitespace(self.input[self.input.len - 1])) {
+            return self.fail("Unexpected trailing whitespace");
+        }
         try self.expect('$', "Expected '$' at start of JSONPath query");
         const segments = try self.parseSegments();
         errdefer {
             for (segments) |*s| @constCast(s).deinit(self.allocator);
             self.allocator.free(segments);
         }
+
         if (!self.isEnd()) return self.fail("Unexpected input after query");
         return .{ .segments = segments };
     }
@@ -338,7 +343,17 @@ pub const JPQueryParser = struct {
     pub fn parseFunctionExpr(self: *JPQueryParser) anyerror!model.TestFunction {
         if (self.matchStr("length")) return .{ .length = .{ .arg = try self.parseOneArg() } };
         if (self.matchStr("value")) return .{ .value = .{ .arg = try self.parseOneArg() } };
-        if (self.matchStr("count")) return .{ .count = .{ .arg = try self.parseOneArg() } };
+        if (self.matchStr("count")) {
+            var arg = try self.parseOneArg();
+            switch (arg) {
+                .lit => {
+                    arg.deinit(self.allocator);
+                    return self.fail("count() requires a query argument, not a literal");
+                },
+                else => {},
+            }
+            return .{ .count = .{ .arg = arg } };
+        }
         if (self.matchStr("search")) return try self.parseTwoArgFn(.search);
         if (self.matchStr("match")) return try self.parseTwoArgFn(.match);
 
@@ -593,7 +608,6 @@ pub const JPQueryParser = struct {
             return self.fail("Leading zero is not valid in slice/index");
         }
 
-
         const val = std.fmt.parseInt(i64, s, 10) catch return self.fail("Invalid integer");
         if (!model.isValidInt(val)) return self.fail("Integer exceeds safe JavaScript range");
         return val;
@@ -787,7 +801,18 @@ pub const JPQueryParser = struct {
             return .{ .query = try self.parseSingularQuery() };
         }
 
-        return .{ .function = try self.parseFunctionExpr() };
+        return .{ .function = blk: {
+            const f = try self.parseFunctionExpr();
+            switch (f) {
+                .search, .match => {
+                    var f_mut = f;
+                    f_mut.deinit(self.allocator);
+                    return self.fail("search/match cannot be used in a comparison");
+                },
+                else => {},
+            }
+            break :blk f;
+        }};
     }
 
     fn parseTestExpr(self: *JPQueryParser, not: bool) !model.Filter {
@@ -812,7 +837,17 @@ pub const JPQueryParser = struct {
             return .{ .abs_query = .{ .segments = segs } };
         }
 
-        return .{ .function = try self.parseFunctionExpr() };
+        const f = try self.parseFunctionExpr();
+        // count() and length() return ValueType — must be used in comparison, not as test
+        switch (f) {
+            .count, .length, .value => {
+                var f_mut = f;
+                f_mut.deinit(self.allocator);
+                return self.fail("count/length/value must be used in a comparison");
+            },
+            else => {},
+        }
+        return .{ .function = f };
     }
 
     pub fn parseSingularQuery(self: *JPQueryParser) !model.SingularQuery {

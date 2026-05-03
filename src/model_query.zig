@@ -319,19 +319,20 @@ pub fn queryRegex(lhs: model.FnArg, rhs: model.FnArg, substr: bool, iter: *q.Jso
     return .{ .bool = matched };
 }
 pub fn matchRegex(input: []const u8, pattern: []const u8, substr: bool, allocator: std.mem.Allocator) !bool {
+    // strip user-provided anchors — we handle anchoring ourselves
+    var p = pattern;
+    if (std.mem.startsWith(u8, p, "^")) p = p[1..];
+    if (std.mem.endsWith(u8, p, "$")) p = p[0 .. p.len - 1];
 
     const prepared = if (substr)
-        try allocator.dupe(u8, pattern)
+        try allocator.dupe(u8, p)
     else
-        try std.fmt.allocPrint(allocator, "^{s}$", .{pattern});
+        try std.fmt.allocPrint(allocator, "^{s}$", .{p});
 
     defer allocator.free(prepared);
 
     const re = mvzr.compile(prepared) orelse return false;
-
-    const result = re.isMatch(input);
-    // std.debug.print("[matchRegex] input={s} prepared={s} result={}\n", .{ input, prepared, result });
-    return result;
+    return re.isMatch(input);
 }
 
 pub fn queryCustom(name: []const u8, args: []model.FnArg, iter: *q.JsonPathIter) !?std.json.Value {

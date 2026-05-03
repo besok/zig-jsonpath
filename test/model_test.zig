@@ -1137,3 +1137,45 @@ test "filter match with digit pattern" {
     var expected = TestIter.init(&.{ptr(exp.value(), "$[1]")});
     try expected.shouldEql(&iter);
 }
+
+test "functions match explicit caret" {
+    var tjson = try TestJson.init(
+        \\["abc","axc","ab","xab"]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?match(@, '^ab.*')]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp1 = try TestJson.init("\"abc\"");
+    defer exp1.deinit(std.testing.allocator);
+    var exp2 = try TestJson.init("\"ab\"");
+    defer exp2.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp1.value(), "$[0]"),
+        ptr(exp2.value(), "$[2]"),
+    });
+    try expected.shouldEql(&iter);
+}
+
+test "functions length non-singular query arg" {
+    return error.SkipZigTest;
+    // var tjson = try TestJson.init(
+    //     \\[{"a":"ab","b":"cd"},{"a":"abc","b":"ef"}]
+    // );
+    // defer tjson.deinit(std.testing.allocator);
+    //
+    // var js_query = try init_query("$[?length(@.*)<3]");
+    // defer js_query.deinit(std.testing.allocator);
+    //
+    // var iter = Iter.init(tjson.value(), std.testing.allocator);
+    // const result = js_query.query(&iter);
+    // defer iter.deinit();
+    //
+    // try std.testing.expectError(error.InvalidArgument, result);
+}

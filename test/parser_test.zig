@@ -244,3 +244,18 @@ test "full query" {
 test "name selector double quotes invalid escaped single quote" {
     try expectFail("$[\"\\'\"]", JPQueryParser.parse);
 }
+
+test "basic no trailing whitespace" {
+    try expectFail("$ ", JPQueryParser.parse);
+}
+
+test "functions count non-query arg number" {
+    try expectFail("$[?count(1)>2]", JPQueryParser.parse);
+}
+test "functions count result must be compared" {
+    try expectFail("$[?count(@..*)]", JPQueryParser.parse);
+}
+
+test "functions search result cannot be compared" {
+    try expectFail("$[?search(@.a, 'a.*')==true]", JPQueryParser.parse);
+}
