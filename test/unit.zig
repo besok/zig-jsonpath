@@ -11,7 +11,7 @@ test "smoke" {
     const allocator = std.testing.allocator;
     const source = "{\"foo\": [1, 2, 3]}";
     const path = "$.foo[*]";
-    var result = try jsonpath.text_query(source, path, allocator);
+    var result = try jsonpath.query_str(source, path, allocator);
     defer result.deinit();
     try std.testing.expectEqual(@as(usize, 3), result.results.len);
 }

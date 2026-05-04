@@ -320,6 +320,7 @@ pub fn queryRegex(lhs: model.FnArg, rhs: model.FnArg, substr: bool, iter: *q.Jso
 }
 pub fn matchRegex(input: []const u8, pattern: []const u8, substr: bool, allocator: std.mem.Allocator) !bool {
     // strip user-provided anchors — we handle anchoring ourselves
+    // std.debug.print("[matchRegex-input] input={s} pattern={s} substr={}\n", .{ input, pattern, substr });
     var p = pattern;
     if (std.mem.startsWith(u8, p, "^")) p = p[1..];
     if (std.mem.endsWith(u8, p, "$")) p = p[0 .. p.len - 1];

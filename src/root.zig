@@ -3,7 +3,7 @@ pub const model = @import("model.zig");
 pub const parser = @import("parser.zig");
 pub const query = @import("query.zig");
 
-pub fn text_query(
+pub fn query_str(
     source: []const u8,
     path: []const u8,
     allocator: std.mem.Allocator,

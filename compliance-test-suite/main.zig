@@ -5,9 +5,8 @@ const suite = @import("suite.zig");
 pub fn main() !void {
     // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     // defer _ = gpa.deinit();
-    //  const allocator = gpa.allocator();
+     // const allocator = gpa.allocator();
     const allocator = std.heap.page_allocator;
-
     const cases = try suite.getCases(allocator);
     defer cases.deinit();
 
@@ -50,7 +49,7 @@ pub fn main() !void {
 
             defer allocator.free(source);
 
-            const v = jsonpath.text_query(source, case.selector, allocator);
+            const v = jsonpath.query_str(source, case.selector, allocator);
             if (v) |value| {
                 var res = value;
                 defer res.deinit();
@@ -99,7 +98,7 @@ pub fn main() !void {
                 }
             } else |err| {
                 std.debug.print(" ------- {s} -------\n", .{case.name});
-                std.debug.print("query error: {s}\n", .{@errorName(err)});
+                std.debug.print("query error: {s}\n", .{@errorName(err), });
             }
         }
     }

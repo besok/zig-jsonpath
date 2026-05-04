@@ -126,7 +126,7 @@ pub const JPQueryParser = struct {
     fn parseString(self: *JPQueryParser) ![]const u8 {
         const quote = self.peek() orelse return self.fail("Unexpected String Literal");
         if (quote != '"' and quote != '\'') return self.fail("The Quote is expected");
-        try self.move(1); // consume opening quote
+        try self.move(1);
 
         var buf: std.ArrayList(u8) = .empty;
         errdefer buf.deinit(self.allocator);
@@ -918,6 +918,10 @@ pub const JPQueryParser = struct {
     }
 };
 
+pub fn parse(path: []const u8, allocator: std.mem.Allocator) !model.JPQuery {
+    var jq_parser = JPQueryParser.init(path, allocator);
+    return jq_parser.parse();
+}
 fn isNameFirst(ch: u8) bool {
     return std.ascii.isAlphabetic(ch) or
         ch == '_' or

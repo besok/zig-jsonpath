@@ -1179,3 +1179,26 @@ test "functions length non-singular query arg" {
     //
     // try std.testing.expectError(error.InvalidArgument, result);
 }
+
+test "functions search escaped backslash before dot" {
+    var tjson = try TestJson.init(
+        \\["x abc y","x a.c y","x axc y","x a\\ c y"]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?search(@, 'a\\\\\\\\.c')]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp = try TestJson.init("\"x a\\\\ c y\"");
+    defer exp.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp.value(), "$[3]"),
+    });
+    try expected.shouldEql(&iter);
+}
+
