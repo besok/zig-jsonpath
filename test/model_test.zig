@@ -1202,3 +1202,90 @@ test "functions search escaped backslash before dot" {
     try expected.shouldEql(&iter);
 }
 
+test "basic descendant segment multiple selectors" {
+    var tjson = try TestJson.init(
+        \\[{"a":"b","d":"e"},{"a":"c","d":"f"}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$..['a','d']");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp1 = try TestJson.init("\"b\"");
+    defer exp1.deinit(std.testing.allocator);
+    var exp2 = try TestJson.init("\"e\"");
+    defer exp2.deinit(std.testing.allocator);
+    var exp3 = try TestJson.init("\"c\"");
+    defer exp3.deinit(std.testing.allocator);
+    var exp4 = try TestJson.init("\"f\"");
+    defer exp4.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{
+        ptr(exp1.value(), "$[0]['a']"),
+        ptr(exp2.value(), "$[0]['d']"),
+        ptr(exp3.value(), "$[1]['a']"),
+        ptr(exp4.value(), "$[1]['d']"),
+    });
+    try expected.shouldEql(&iter);
+}
+
+test "filter equals absent from index selector equals absent from name selector" {
+    var tjson = try TestJson.init(
+        \\[{"list":[1]}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?@.absent==@.list[9]]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp = try TestJson.init("{\"list\":[1]}");
+    defer exp.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{ptr(exp.value(), "$[0]")});
+    try expected.shouldEql(&iter);
+}
+
+test "filter less than or equal to null" {
+    var tjson = try TestJson.init(
+        \\[{"a":null,"d":"e"},{"a":"c","d":"f"}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?@.a<=null]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp = try TestJson.init("{\"a\":null,\"d\":\"e\"}");
+    defer exp.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{ptr(exp.value(), "$[0]")});
+    try expected.shouldEql(&iter);
+}
+
+test "filter equals null absent from data" {
+    var tjson = try TestJson.init(
+        \\[{"d":"e"},{"a":"c","d":"f"}]
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$[?@.a==null]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var expected = TestIter.init(&.{});
+    try expected.shouldEql(&iter);
+}

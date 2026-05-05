@@ -103,19 +103,19 @@ pub const Segment = union(enum) {
                     next.deinit(iteration.allocator);
                 }
 
-                for (ss) |s| {
-                    var branch = Iter.init(iteration.root, iteration.allocator);
-                    defer branch.deinit();
-                    for (iteration.cursors.items) |p| {
-                        const duped = try iteration.allocator.dupe(u8, p.path);
+                for (iteration.cursors.items) |cursor| {
+                    for (ss) |s| {
+                        var branch = Iter.init(iteration.root, iteration.allocator);
+                        defer branch.deinit();
+                        const duped = try iteration.allocator.dupe(u8, cursor.path);
                         errdefer iteration.allocator.free(duped);
-                        try branch.cursors.append(iteration.allocator, .{ .json = p.json, .path = duped });
-                    }
-                    try s.query(&branch);
-                    for (branch.cursors.items) |p| {
-                        const duped = try iteration.allocator.dupe(u8, p.path);
-                        errdefer iteration.allocator.free(duped);
-                        try next.append(iteration.allocator, .{ .json = p.json, .path = duped });
+                        try branch.cursors.append(iteration.allocator, .{ .json = cursor.json, .path = duped });
+                        try s.query(&branch);
+                        for (branch.cursors.items) |p| {
+                            const duped2 = try iteration.allocator.dupe(u8, p.path);
+                            errdefer iteration.allocator.free(duped2);
+                            try next.append(iteration.allocator, .{ .json = p.json, .path = duped2 });
+                        }
                     }
                 }
 
@@ -671,22 +671,38 @@ pub const Comparison = union(enum) {
         const op = switch (self) {
             inline else => |v| v,
         };
-        const lhs = try op.lhs.evaluate(iter) orelse {
-            dbg("[Comparison.{s}] lhs is null\n", .{@tagName(self)});
-            return false;
-        };
-        const rhs = try op.rhs.evaluate(iter) orelse {
-            dbg("[Comparison.{s}] rhs is null\n", .{@tagName(self)});
-            return false;
-        };
-        dbg("[Comparison.{s}]\n", .{@tagName(self)});
+
+        const lhs = try op.lhs.evaluate(iter);
+        const rhs = try op.rhs.evaluate(iter);
+
+        // both nothing — nothing == nothing is true, nothing != nothing is false
+        if (lhs == null and rhs == null) {
+            return switch (self) {
+                .eq => true,
+                .ne => false,
+                else => false,
+            };
+        }
+
+        // one is nothing — not comparable to a real value
+        if (lhs == null or rhs == null) {
+            return switch (self) {
+                .eq => false,
+                .ne => true,
+                else => false,
+            };
+        }
+
+        const l = lhs.?;
+        const r = rhs.?;
+
         return switch (self) {
-            .eq => inner.jsonValueEql(lhs, rhs),
-            .ne => !inner.jsonValueEql(lhs, rhs),
-            .gt => (inner.jsonValueCmp(lhs, rhs) orelse return false) == .gt,
-            .lt => (inner.jsonValueCmp(lhs, rhs) orelse return false) == .lt,
-            .gte => (inner.jsonValueCmp(lhs, rhs) orelse return false) != .lt,
-            .lte => (inner.jsonValueCmp(lhs, rhs) orelse return false) != .gt,
+            .eq => inner.jsonValueEql(l, r),
+            .ne => !inner.jsonValueEql(l, r),
+            .gt => (inner.jsonValueCmp(l, r) orelse return false) == .gt,
+            .lt => (inner.jsonValueCmp(l, r) orelse return false) == .lt,
+            .gte => inner.jsonValueEql(l, r) or (inner.jsonValueCmp(l, r) orelse return false) == .gt,
+            .lte => inner.jsonValueEql(l, r) or (inner.jsonValueCmp(l, r) orelse return false) == .lt,
         };
     }
 };
