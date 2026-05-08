@@ -264,6 +264,7 @@ pub fn queryLength(arg: model.FnArg, iter: *q.JsonPathIter) !?std.json.Value {
     defer branch.deinit();
 
     const val = try evaluateArg(arg, &branch) orelse return null;
+    // std.debug.print("[Query - Length]: {f}\n", .{std.json.fmt(val, .{})});
     return switch (branch.cursors.items.len) {
         0 => null,
         1 => lengthOfValue(val),
@@ -353,6 +354,7 @@ fn lengthOfValue(val: std.json.Value) ?std.json.Value {
 }
 
 pub fn jsonValueEql(a: std.json.Value, b: std.json.Value) bool {
+
     return switch (a) {
         .null => b == .null,
 

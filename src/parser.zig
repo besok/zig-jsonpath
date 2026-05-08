@@ -812,13 +812,25 @@ pub const JPQueryParser = struct {
                 else => {},
             }
             break :blk f;
-        }};
+        } };
     }
 
     fn parseTestExpr(self: *JPQueryParser, not: bool) !model.Filter {
         const t = try self.allocator.create(model.Test);
         errdefer self.allocator.destroy(t);
         t.* = try self.parseTest();
+        // count/length/value return ValueType — invalid as standalone test
+        switch (t.*) {
+            .function => |f| switch (f) {
+                .count, .length, .value => {
+                    t.deinit(self.allocator);
+                    self.allocator.destroy(t);
+                    return self.fail("count/length/value must be used in a comparison");
+                },
+                else => {},
+            },
+            else => {},
+        }
         return .{ .atom = .{ .test_expr = .{ .expr = t, .not = not } } };
     }
 
@@ -837,17 +849,7 @@ pub const JPQueryParser = struct {
             return .{ .abs_query = .{ .segments = segs } };
         }
 
-        const f = try self.parseFunctionExpr();
-        // count() and length() return ValueType — must be used in comparison, not as test
-        switch (f) {
-            .count, .length, .value => {
-                var f_mut = f;
-                f_mut.deinit(self.allocator);
-                return self.fail("count/length/value must be used in a comparison");
-            },
-            else => {},
-        }
-        return .{ .function = f };
+        return .{ .function = try self.parseFunctionExpr() };
     }
 
     pub fn parseSingularQuery(self: *JPQueryParser) !model.SingularQuery {

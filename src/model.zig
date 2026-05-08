@@ -297,14 +297,17 @@ pub const Filter = union(enum) {
                     next.deinit(iteration.allocator);
                 }
 
-                for (fs) |f| {
-                    var branch = try iteration.fork();
-                    defer branch.deinit();
-                    try f.query(&branch);
-                    for (branch.cursors.items) |p| {
-                        const duped = try iteration.allocator.dupe(u8, p.path);
-                        errdefer iteration.allocator.free(duped);
-                        try next.append(iteration.allocator, .{ .json = p.json, .path = duped });
+                for (iteration.cursors.items) |cursor| {
+                    for (fs) |f| {
+                        var branch = try iteration.forkSingle(cursor);
+                        defer branch.deinit();
+                        try f.query(&branch);
+                        if (branch.cursors.items.len > 0) {
+                            const duped = try iteration.allocator.dupe(u8, cursor.path);
+                            errdefer iteration.allocator.free(duped);
+                            try next.append(iteration.allocator, .{ .json = cursor.json, .path = duped });
+                            break;
+                        }
                     }
                 }
 

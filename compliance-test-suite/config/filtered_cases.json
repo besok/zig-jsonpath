@@ -4,5 +4,17 @@
     "reason": "The test itself is not fully correct (@.* can return 1 node). Anyway, need to figure out the validation.",
     "expected_to_fix": true,
     "issue": 1
+  },
+  {
+    "name": "functions, length, non-singular query arg, multiple index selectors",
+    "reason": "EXtra validation in the parser",
+    "expected_to_fix": true,
+    "issue": 1
+  },
+  {
+    "name": "functions, length, non-singular query arg, multiple name selectors",
+    "reason": "EXtra validation in the parser",
+    "expected_to_fix": true,
+    "issue": 1
   }
 ]
