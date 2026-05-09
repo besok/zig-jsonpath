@@ -1,6 +1,7 @@
 # zig-jsonpath
 
 A Zig implementation of JSONPath, fully compliant with [RFC 9535](https://www.rfc-editor.org/rfc/rfc9535.html).
+(*4 issues mostly for regex, check them in issues*)
 
 ## Examples
 
@@ -64,28 +65,35 @@ Given the json
 | `$..book[?@.price <= $.expensive]`      | All books in store that are not "expensive"                  |
 | `$..*`                                  | Give me every thing                                          |
 
-## Library Usage
+ 
+## Installation
 
-Add to your `build.zig.zon`:
+The easiest way to add `zig-jsonpath` to your project is by using Zig's package manager (Zig 0.12.0+).
 
-```zig
-.dependencies = .{
-    .zig_jsonpath = .{
-        .url = "https://github.com/your-org/zig-jsonpath/archive/<commit>.tar.gz",
-        .hash = "<hash>",
-    },
-},
+**1. Fetch the dependency**
+
+Run the following command in your terminal at the root of your project. This will automatically download the library, calculate the hash, and add it to your `build.zig.zon` file:
+
+```bash
+zig fetch --save [https://github.com/besok/zig-jsonpath/archive/main.tar.gz](https://github.com/besok/zig-jsonpath/archive/master.tar.gz)
 ```
 
-And in `build.zig`:
+**2. Add the module to your build.zig**
 
-```zig
-const jsonpath = b.dependency("zig_jsonpath", .{
+Next, open your build.zig file and add the following inside your build function so your executable (or library) can import it:
+``` 
+// 1. Fetch the zig-jsonpath dependency
+const jsonpath_dep = b.dependency("zig-jsonpath", .{
     .target = target,
     .optimize = optimize,
 });
-exe.root_module.addImport("jsonpath", jsonpath.module("zig_jsonpath"));
+
+// 2. Add the module to your executable (replace 'exe' with your compilation step)
+exe.root_module.addImport("jsonpath", jsonpath_dep.module("zig-jsonpath"));
 ```
+ 
+
+## Usage
 
 ### One-shot query from strings
 
