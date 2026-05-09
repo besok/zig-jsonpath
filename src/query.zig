@@ -95,6 +95,7 @@ pub const JsonPathIter = struct {
     }
     pub fn fork(self: *JsonPathIter) !JsonPathIter {
         var branch = JsonPathIter.init(self.root, self.allocator);
+        errdefer branch.deinit();
         for (self.cursors.items) |p| {
             const duped = try self.allocator.dupe(u8, p.path);
             errdefer self.allocator.free(duped);
@@ -104,6 +105,7 @@ pub const JsonPathIter = struct {
     }
     pub fn forkSingle(self: *JsonPathIter, cursor: JsonPointer) !JsonPathIter {
         var branch = JsonPathIter.init(self.root, self.allocator);
+        errdefer branch.deinit();
         const duped = try self.allocator.dupe(u8, cursor.path);
         errdefer self.allocator.free(duped);
         try branch.cursors.append(self.allocator, .{ .json = cursor.json, .path = duped });

@@ -358,6 +358,7 @@ pub const JPQueryParser = struct {
         if (self.matchStr("match")) return try self.parseTwoArgFn(.match);
 
         const name = try self.parseMemberName();
+        errdefer self.allocator.free(name);
         var args = std.ArrayListUnmanaged(model.FnArg){};
         errdefer {
             for (args.items) |*a| a.deinit(self.allocator);
@@ -368,11 +369,17 @@ pub const JPQueryParser = struct {
         try self.skipWhitespace();
 
         if (!self.is(')')) {
-            try args.append(self.allocator, try self.parseFnArg());
+            {
+                var arg = try self.parseFnArg();
+                errdefer arg.deinit(self.allocator);
+                try args.append(self.allocator, arg);
+            }
             try self.skipWhitespace();
             while (self.is(',')) {
                 try self.skipWhitespace();
-                try args.append(self.allocator, try self.parseFnArg());
+                var arg = try self.parseFnArg();
+                errdefer arg.deinit(self.allocator);
+                try args.append(self.allocator, arg);
                 try self.skipWhitespace();
             }
             try self.expect(')', "Expected ')' to close function arguments");
@@ -384,7 +391,8 @@ pub const JPQueryParser = struct {
     fn parseOneArg(self: *JPQueryParser) !model.FnArg {
         try self.expect('(', "Expected '('");
         try self.skipWhitespace();
-        const arg = try self.parseFnArg();
+        var arg = try self.parseFnArg();
+        errdefer arg.deinit(self.allocator);
         try self.skipWhitespace();
         try self.expect(')', "Expected ')'");
         return arg;
@@ -398,7 +406,8 @@ pub const JPQueryParser = struct {
         try self.skipWhitespace();
         try self.expect(',', "Expected ',' between arguments");
         try self.skipWhitespace();
-        const rhs = try self.parseFnArg();
+        var rhs = try self.parseFnArg();
+        errdefer rhs.deinit(self.allocator);
         try self.skipWhitespace();
         try self.expect(')', "Expected ')'");
         return @unionInit(model.TestFunction, @tagName(tag), .{ .lhs = lhs, .rhs = rhs });
@@ -705,7 +714,8 @@ pub const JPQueryParser = struct {
         if (self.peek() == '(') {
             try self.move(1);
             try self.skipWhitespace();
-            const inner = try self.parseLogicalOr();
+            var inner = try self.parseLogicalOr();
+            errdefer inner.deinit(self.allocator);
             try self.skipWhitespace();
             try self.expect(')', "Expected ')'");
 
@@ -728,21 +738,25 @@ pub const JPQueryParser = struct {
 
     fn tryCompExpr(self: *JPQueryParser, not: bool) !?model.Filter {
         _ = not;
-        const lhs = self.parseComparable() catch return null;
+        var lhs = self.parseComparable() catch return null;
+        errdefer lhs.deinit(self.allocator);
 
         try self.skipWhitespace();
         const op = (try self.parseCompOp()) orelse {
-            var lhs_mut = lhs;
-            lhs_mut.deinit(self.allocator);
+            lhs.deinit(self.allocator);
             return null;
         };
 
         try self.skipWhitespace();
-        var lhs_mut = lhs;
-        errdefer lhs_mut.deinit(self.allocator);
         const rhs = try self.parseComparable();
+        errdefer {
+            // we can't use @constCast on rhs here because it's not yet in a union,
+            // but parseComparable returns a value, so we just deinit it.
+            var rhs_mut = rhs;
+            rhs_mut.deinit(self.allocator);
+        }
 
-        const bin = model.BinaryOp{ .lhs = lhs_mut, .rhs = rhs };
+        const bin = model.BinaryOp{ .lhs = lhs, .rhs = rhs };
         const cmp: model.Comparison = switch (op) {
             .eq => .{ .eq = bin },
             .ne => .{ .ne = bin },
@@ -802,11 +816,10 @@ pub const JPQueryParser = struct {
         }
 
         return .{ .function = blk: {
-            const f = try self.parseFunctionExpr();
+            var f = try self.parseFunctionExpr();
+            errdefer f.deinit(self.allocator);
             switch (f) {
                 .search, .match => {
-                    var f_mut = f;
-                    f_mut.deinit(self.allocator);
                     return self.fail("search/match cannot be used in a comparison");
                 },
                 else => {},
@@ -817,11 +830,11 @@ pub const JPQueryParser = struct {
 
     fn parseTestExpr(self: *JPQueryParser, not: bool) !model.Filter {
         var test_val = try self.parseTest();
+        errdefer test_val.deinit(self.allocator);
 
         switch (test_val) {
             .function => |f| switch (f) {
                 .count, .length, .value => {
-                    test_val.deinit(self.allocator);
                     return self.fail("count/length/value must be used in a comparison");
                 },
                 else => {},
@@ -880,11 +893,13 @@ pub const JPQueryParser = struct {
         try self.skipWhitespace();
         while (self.peek()) |ch| {
             if (ch == '[') {
-                const seg = try self.parseBracketedSingularSegment();
+                var seg = try self.parseBracketedSingularSegment();
+                errdefer seg.deinit(self.allocator);
                 try segs.append(self.allocator, seg);
             } else if (ch == '.') {
                 try self.move(1);
                 const name = try self.parseMemberName();
+                errdefer self.allocator.free(name);
                 try segs.append(self.allocator, .{ .name = name });
             } else {
                 break;

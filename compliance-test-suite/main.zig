@@ -3,10 +3,13 @@ const jsonpath = @import("jsonpath");
 const suite = @import("suite.zig");
 
 pub fn main() !void {
-    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    // defer _ = gpa.deinit();
-     // const allocator = gpa.allocator();
-    const allocator = std.heap.page_allocator;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer {
+        const leaked = gpa.deinit();
+        if (leaked == .leak) std.debug.print("MEM LEAKS DETECTED!\n", .{});
+    }
+     const allocator = gpa.allocator();
+    // const allocator = std.heap.page_allocator;
     const cases = try suite.getCases(allocator);
     defer cases.deinit();
 
@@ -22,7 +25,7 @@ pub fn main() !void {
     var total: usize = 0;
     var passed: usize = 0;
     var skipped: usize = 0;
-
+    std.debug.print(" ------- RFC9535 Suite ({d} tests) -------\n", .{cases.value.tests.len});
     for (cases.value.tests) |case| {
         total += 1;
 

@@ -480,7 +480,9 @@ fn collectDescendants(
     path: []const u8,
     out: *std.ArrayListUnmanaged(q.JsonPointer),
 ) !void {
-    try out.append(allocator, .{ .json = value, .path = try allocator.dupe(u8, path) });
+    const duped = try allocator.dupe(u8, path);
+    errdefer allocator.free(duped);
+    try out.append(allocator, .{ .json = value, .path = duped });
 
     switch (value.*) {
         .array => |arr| {
