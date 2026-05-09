@@ -1,7 +1,7 @@
 # zig-jsonpath
 
 A Zig implementation of JSONPath, fully compliant with [RFC 9535](https://www.rfc-editor.org/rfc/rfc9535.html).
-(*4 issues mostly for regex, check them in issues*)
+
 
 ## Examples
 

@@ -2,8 +2,10 @@ const std = @import("std");
 const model = @import("model.zig");
 const jsp = @import("parser.zig");
 
+/// Represents a single matched node resulting from a JSONPath query.
 pub const JsonPointer = struct {
     json: *std.json.Value,
+    /// The string representation of the specific path leading to this node (e.g., `$.store.book[0]`).
     path: []const u8,
 
     pub fn deinit(self: *JsonPointer, allocator: std.mem.Allocator) void {
@@ -11,9 +13,15 @@ pub const JsonPointer = struct {
     }
 };
 
+/// The complete result set of a JSONPath query execution.
+///
+/// This struct safely bundles the matched results alongside the underlying
+/// JSON document's memory arena. By taking ownership of the `std.json.Parsed`
+/// object, it guarantees that all `*std.json.Value` pointers within the `results`
+/// array remain safely alive and valid for the lifetime of this struct.
 pub const JsonPathResult = struct {
-    json: std.json.Parsed(std.json.Value), // owns the JSON document
-    results: []JsonPointer, // owns the result nodes and their paths
+    json: std.json.Parsed(std.json.Value),
+    results: []JsonPointer,
     allocator: std.mem.Allocator,
 
     pub fn deinit(self: *JsonPathResult) void {
@@ -23,6 +31,25 @@ pub const JsonPathResult = struct {
     }
 };
 
+
+/// Executes a compiled JSONPath query against a pre-parsed JSON document.
+///
+/// **Parameters:**
+/// - `parsed_json`: A pointer to the parsed JSON document. The returned result will
+///   contain references to the values within this document, so the underlying JSON
+///   arena must remain alive for the lifetime of the result.
+/// - `path`: A pointer to the compiled JSONPath query (`model.JPQuery`) to execute.
+/// - `allocator`: The memory allocator used for tracking temporary iteration state
+///   (like active cursors) and allocating the final array of matched results.
+///
+/// **Returns:**
+/// A `JsonPathResult` containing an array of pointers/values matching the query.
+///
+/// **Memory Management & Caller Responsibility:**
+/// The caller takes ownership of the returned `JsonPathResult` and is responsible
+/// for deinitializing it (e.g., `result.deinit()`) to free the array of matches.
+/// If an error occurs during execution, all temporary allocations made by the
+/// internal iterator are safely cleaned up automatically.
 pub fn perform(
     parsed_json: *std.json.Parsed(std.json.Value),
     path: *const model.JPQuery,
@@ -34,7 +61,12 @@ pub fn perform(
     try query(path, &init_query);
     return init_query.toResult(parsed_json.*);
 }
-
+/// Manages the execution state of a JSONPath query as it traverses a JSON document.
+///
+/// Because JSONPath queries can branch (e.g., `$.store.*` or filters), a single query
+/// can actively evaluate multiple nodes at once. This struct acts as a cursor manager,
+/// tracking all currently active nodes (`cursors`), remembering the string path taken
+/// to reach each one, and managing the dynamic memory for those paths.
 pub const JsonPathIter = struct {
     root: *std.json.Value,
     cursors: std.ArrayListUnmanaged(JsonPointer),
@@ -75,7 +107,7 @@ pub const JsonPathIter = struct {
     pub fn eql(self: JsonPathIter, other: JsonPathIter) bool {
         if (self.cursors.items.len != other.cursors.items.len) return false;
         for (self.cursors.items, other.cursors.items) |a, b| {
-            if (a.value != b.value) return false;
+            if (a.json != b.json) return false;
             if (!std.mem.eql(u8, a.path, b.path)) return false;
         }
         return true;

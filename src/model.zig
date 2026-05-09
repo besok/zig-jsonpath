@@ -35,6 +35,7 @@ fn debugCursorsAt(iter: *Iter) void {
     debugCursors("CURSORS", iter);
 }
 
+/// struct represents the jsonpath nodes.
 pub const JPQuery = struct {
     segments: []Segment,
 

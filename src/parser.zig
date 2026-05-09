@@ -935,6 +935,7 @@ pub const JPQueryParser = struct {
     }
 };
 
+
 pub fn parse(path: []const u8, allocator: std.mem.Allocator) !model.JPQuery {
     var jq_parser = JPQueryParser.init(path, allocator);
     return jq_parser.parse();
