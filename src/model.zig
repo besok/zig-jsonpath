@@ -484,7 +484,7 @@ pub const Test = union(enum) {
             },
             .function => |f| {
                 const val = try f.evaluate(iteration);
-                dbg("[Test.function] evaluate result: {any}\n", .{val});
+                dbg("[Test.function] evaluate result: {f}\n", .{std.json.fmt(val, .{})});
                 const passes = if (val) |v| switch (v) {
                     .bool => |b| b,
                     else => true,
@@ -557,9 +557,7 @@ pub const TestFunction = union(enum) {
             .match => |v| try inner.queryMatch(v.lhs, v.rhs, iter),
             .custom => |v| try inner.queryCustom(v.name, v.args, iter),
         };
-        dbg("[TestFunction] tag={s}\n", .{
-            @tagName(self),
-        });
+        dbg("[TestFunction] tag={s}\n", .{@tagName(self)});
         return result;
     }
 };

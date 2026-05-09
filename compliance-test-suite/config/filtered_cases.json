@@ -16,5 +16,87 @@
     "reason": "EXtra validation in the parser",
     "expected_to_fix": true,
     "issue": 1
+  },
+  {
+    "name": "functions, match, filter, match function, unicode char class, uppercase",
+    "reason": "The regex engine does not support it",
+    "expected_to_fix": true,
+    "issue": 2
+  },  {
+    "name": "functions, search, filter, search function, unicode char class, uppercase",
+    "reason": "The regex engine does not support it",
+    "expected_to_fix": true,
+    "issue": 2
+  },{
+    "name": "functions, search, filter, search function, unicode char class negated, uppercase",
+    "reason": "The regex engine does not support it",
+    "expected_to_fix": true,
+    "issue": 2
+  },
+  {
+    "name": "functions, match, filter, match function, unicode char class negated, uppercase",
+    "reason": "The regex engine does not support it",
+    "expected_to_fix": true,
+    "issue": 2
+  },
+  {
+    "name": "functions, match, filter, match function, unicode, surrogate pair",
+    "reason": "The regex engine does not support it",
+    "expected_to_fix": true,
+    "issue": 3
+  },
+  {
+    "name": "functions, search, filter, search function, unicode, surrogate pair",
+    "reason": "The regex engine does not support it",
+    "expected_to_fix": true,
+    "issue": 3
+  },
+  {
+    "name": "functions, search, dot matcher on \\u2028",
+    "reason": "The regex engine does not support it",
+    "expected_to_fix": true,
+    "issue": 4
+  },
+  {
+    "name": "functions, search, dot matcher on \\u2029",
+    "reason": "The regex engine does not support it",
+    "expected_to_fix": true,
+    "issue": 4
+  },
+  {
+    "name": "functions, match, dot matcher on \\u2028",
+    "reason": "The regex engine does not support it",
+    "expected_to_fix": true,
+    "issue": 4
+  },
+  {
+    "name": "functions, match, dot matcher on \\u2029",
+    "reason": "The regex engine does not support it",
+    "expected_to_fix": true,
+    "issue": 4
+  },
+  {
+    "name": "functions, match, escaped backslash before dot",
+    "reason": "The regex engine does not support it",
+    "expected_to_fix": true,
+    "issue": 5
+  },
+  {
+    "name": "functions, match, escaped left square bracket",
+    "reason": "The regex engine does not support it",
+    "expected_to_fix": true,
+    "issue": 5
+  },
+  {
+    "name": "functions, search, escaped backslash before dot",
+    "reason": "The regex engine does not support it",
+    "expected_to_fix": true,
+    "issue": 5
+  },
+  {
+    "name": "functions, search, escaped left square bracket",
+    "reason": "The regex engine does not support it",
+    "expected_to_fix": true,
+    "issue": 5
   }
 ]

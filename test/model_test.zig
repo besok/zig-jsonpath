@@ -6,7 +6,6 @@ const model = jsonpath.model;
 const query = jsonpath.query;
 const Iter = query.JsonPathIter;
 
-
 pub const TestJson = struct {
     parsed: std.json.Parsed(std.json.Value),
 
@@ -1364,9 +1363,9 @@ test "functions length arg is a function expression" {
 
     var expected = TestIter.init(&.{ptr(exp.value(), "$['values'][0]")});
     try expected.shouldEql(&iter);
-    }
+}
 
-    test "functions length arg is special nothing" {
+test "functions length arg is special nothing" {
     var tjson = try TestJson.init(
         \\[{"a": "ab"}, {"c": "d"}, {"a": null}]
     );
@@ -1384,4 +1383,67 @@ test "functions length arg is a function expression" {
 
     var expected = TestIter.init(&.{ptr(exp.value(), "$[0]")});
     try expected.shouldEql(&iter);
-    }
+}
+
+test "functions match unicode char class uppercase" {
+    return error.SkipZigTest;
+    // var tjson = try TestJson.init(
+    //     \\["ж","Ж","1","жЖ",true,[],{}]
+    // );
+    // defer tjson.deinit(std.testing.allocator);
+    //
+    // var js_query = try init_query("$[?match(@, '\\\\p{Lu}')]");
+    // defer js_query.deinit(std.testing.allocator);
+    //
+    // var iter = Iter.init(tjson.value(), std.testing.allocator);
+    // try js_query.query(&iter);
+    // defer iter.deinit();
+    //
+    // var exp = try TestJson.init("\"Ж\"");
+    // defer exp.deinit(std.testing.allocator);
+    //
+    // var expected = TestIter.init(&.{
+    //     ptr(exp.value(), "$[1]"),
+    // });
+    // try expected.shouldEql(&iter);
+}
+
+test "functions match unicode surrogate pair" {
+    return error.SkipZigTest;
+    // var tjson = try TestJson.init(
+    //     \\["a𐄁b","ab","1",true,[],{}]
+    // );
+    // defer tjson.deinit(std.testing.allocator);
+    //
+    // var js_query = try init_query("$[?match(@, 'a.b')]");
+    // defer js_query.deinit(std.testing.allocator);
+    //
+    // var iter = Iter.init(tjson.value(), std.testing.allocator);
+    // try js_query.query(&iter);
+    // defer iter.deinit();
+    //
+    // var exp = try TestJson.init("\"a𐄁b\"");
+    // defer exp.deinit(std.testing.allocator);
+    //
+    // var expected = TestIter.init(&.{ptr(exp.value(), "$[0]")});
+    // try expected.shouldEql(&iter);
+}
+test "functions, match, arg is a function expression" {
+    var tjson = try TestJson.init(
+        \\{ "regex": "a.*", "values": [{"a": "ab"},{"a": "ba"}]}
+    );
+    defer tjson.deinit(std.testing.allocator);
+
+    var js_query = try init_query("$.values[?match(@.a, value($..['regex']))]");
+    defer js_query.deinit(std.testing.allocator);
+
+    var iter = Iter.init(tjson.value(), std.testing.allocator);
+    try js_query.query(&iter);
+    defer iter.deinit();
+
+    var exp = try TestJson.init("{\"a\": \"ab\"}");
+    defer exp.deinit(std.testing.allocator);
+
+    var expected = TestIter.init(&.{ptr(exp.value(), "$['values'][0]")});
+    try expected.shouldEql(&iter);
+}

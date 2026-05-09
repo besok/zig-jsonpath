@@ -816,21 +816,21 @@ pub const JPQueryParser = struct {
     }
 
     fn parseTestExpr(self: *JPQueryParser, not: bool) !model.Filter {
-        const t = try self.allocator.create(model.Test);
-        errdefer self.allocator.destroy(t);
-        t.* = try self.parseTest();
-        // count/length/value return ValueType — invalid as standalone test
-        switch (t.*) {
+        var test_val = try self.parseTest();
+
+        switch (test_val) {
             .function => |f| switch (f) {
                 .count, .length, .value => {
-                    t.deinit(self.allocator);
-                    self.allocator.destroy(t);
+                    test_val.deinit(self.allocator);
                     return self.fail("count/length/value must be used in a comparison");
                 },
                 else => {},
             },
             else => {},
         }
+
+        const t = try self.allocator.create(model.Test);
+        t.* = test_val;
         return .{ .atom = .{ .test_expr = .{ .expr = t, .not = not } } };
     }
 

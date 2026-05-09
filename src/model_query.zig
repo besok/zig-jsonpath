@@ -3,6 +3,12 @@ const mvzr = @import("mvzr");
 const model = @import("model.zig");
 const q = @import("query.zig");
 
+const debug_query = @import("build_options").debug_query;
+
+inline fn dbg(comptime fmt: []const u8, args: anytype) void {
+    if (debug_query) std.debug.print(fmt, args);
+}
+
 pub fn querySlice(slice: model.Slice, iteration: *q.JsonPathIter) !void {
     var next_pointers = std.ArrayListUnmanaged(q.JsonPointer){};
     errdefer {
@@ -248,12 +254,16 @@ pub fn querySingularQuerySegmentByName(
         }
     }
 }
-fn evaluateArg(arg: model.FnArg, iter: *q.JsonPathIter) !?std.json.Value {
+
+fn evaluateArg(arg: model.FnArg, iter: *q.JsonPathIter) anyerror!?std.json.Value {
     return switch (arg) {
         .lit => |l| l.toJsValue(),
-        .test_arg => |t| {
-            try t.query(iter);
-            return if (iter.cursors.items.len == 1) iter.cursors.items[0].json.* else null;
+        .test_arg => |t| switch (t.*) {
+            .function => |f| try f.evaluate(iter),
+            else => blk: {
+                try t.query(iter);
+                break :blk if (iter.cursors.items.len == 1) iter.cursors.items[0].json.* else null;
+            },
         },
         .filter => null,
     };
@@ -264,7 +274,7 @@ pub fn queryLength(arg: model.FnArg, iter: *q.JsonPathIter) !?std.json.Value {
     defer branch.deinit();
 
     const val = try evaluateArg(arg, &branch) orelse return null;
-    // std.debug.print("[Query - Length]: {f}\n", .{std.json.fmt(val, .{})});
+
     return switch (branch.cursors.items.len) {
         0 => null,
         1 => lengthOfValue(val),
@@ -286,8 +296,12 @@ pub fn queryCount(arg: model.FnArg, iter: *q.JsonPathIter) !?std.json.Value {
 pub fn queryValue(arg: model.FnArg, iter: *q.JsonPathIter) !?std.json.Value {
     var branch = try iter.fork();
     defer branch.deinit();
+    dbg("[Query-Value] arg = '{any}'\n", .{arg});
+    const res = try evaluateArg(arg, &branch);
 
-    return evaluateArg(arg, &branch);
+    dbg("[Query-Value] evaluated arg = '{f}'\n", .{std.json.fmt(res, .{})});
+
+    return res;
 }
 
 pub fn queryMatch(lhs: model.FnArg, rhs: model.FnArg, iter: *q.JsonPathIter) !?std.json.Value {
@@ -302,20 +316,22 @@ pub fn queryRegex(lhs: model.FnArg, rhs: model.FnArg, substr: bool, iter: *q.Jso
     var lhs_branch = try iter.fork();
     defer lhs_branch.deinit();
     const lhs_val = try evaluateArg(lhs, &lhs_branch) orelse return .{ .bool = false };
-
+    dbg("[Query-Regex] lhs value = '{f}'\n", .{std.json.fmt(lhs_val, .{})});
     var rhs_branch = try iter.fork();
     defer rhs_branch.deinit();
     const rhs_val = try evaluateArg(rhs, &rhs_branch) orelse return .{ .bool = false };
+    dbg("[Query-Regex] rhs value = '{f}'\n", .{std.json.fmt(rhs_val, .{})});
 
     const lhs_str = switch (lhs_val) {
         .string => |v| v,
         else => return .{ .bool = false },
     };
+    dbg("[Query-Regex] lhs resolverd string  = '{s}'\n", .{lhs_str});
     const rhs_str = switch (rhs_val) {
         .string => |v| v,
         else => return .{ .bool = false },
     };
-
+    dbg("[Query-Regex]  rhs resolverd string = '{s}'\n", .{rhs_str});
     const matched = try matchRegex(lhs_str, rhs_str, substr, iter.allocator);
     return .{ .bool = matched };
 }
@@ -354,7 +370,6 @@ fn lengthOfValue(val: std.json.Value) ?std.json.Value {
 }
 
 pub fn jsonValueEql(a: std.json.Value, b: std.json.Value) bool {
-
     return switch (a) {
         .null => b == .null,
 
